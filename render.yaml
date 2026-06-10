@@ -10,5 +10,9 @@ services:
       - key: PYTHON_VERSION
         value: 3.11.0
       - key: ALLOWED_ORIGINS
-        value: https://iq-math-technologies.vercel.app
+        value: https://iq-math-technologies.vercel.app,http://localhost:5173,http://127.0.0.1:5173
+      - key: ALPHA_VANTAGE_KEY
+        value: QHFN2F26OZ9SV2IX
+      - key: FINNHUB_KEY
+        value: d8ki25pr01qjgd7050igd8ki25pr01qjgd7050j0
     healthCheckPath: /health
