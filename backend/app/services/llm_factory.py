@@ -44,6 +44,15 @@ def create_chat_model(credentials: Credentials):
             temperature=0.2,
             streaming=True,
         )
+    if provider == "groq":
+        from langchain_groq import ChatGroq
+
+        return ChatGroq(
+            groq_api_key=credentials.api_key,
+            model_name=credentials.model,
+            temperature=0.2,
+            streaming=True,
+        )
     raise ValueError(f"Unsupported provider: {credentials.provider}")
 
 

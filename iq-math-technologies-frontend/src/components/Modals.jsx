@@ -12,6 +12,13 @@ export const PROVIDER_MODELS = {
     "google/gemini-flash-1.5",
     "meta-llama/llama-3.1-70b-instruct",
   ],
+  groq: [
+    "llama-3.3-70b-versatile",
+    "llama-3.1-8b-instant",
+    "deepseek-r1-distill-llama-70b",
+    "qwen-qwq-32b",
+    "gemma2-9b-it",
+  ],
 };
 
 const PROVIDER_LABELS = {
@@ -19,6 +26,11 @@ const PROVIDER_LABELS = {
   gemini: "Gemini",
   claude: "Claude",
   openrouter: "OpenRouter",
+  groq: "Groq",
+};
+
+const PROVIDER_BADGES = {
+  groq: "Free Tier Available",
 };
 
 const backdrop = {
@@ -134,6 +146,11 @@ function AIProviderModal({ isOpen, onClose, onSave }) {
               </option>
             ))}
           </select>
+          {PROVIDER_BADGES[form.provider] && (
+            <span className="mt-1.5 inline-block px-2 py-0.5 text-[10px] font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 rounded">
+              {PROVIDER_BADGES[form.provider]}
+            </span>
+          )}
         </div>
 
         <div>
