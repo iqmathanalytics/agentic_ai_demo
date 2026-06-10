@@ -29,9 +29,11 @@ _KNOWN_URL_PATTERNS = re.compile(
 def _is_url(text: str) -> bool:
     """Return True if *text* looks like a bare LinkedIn URL, not profile content."""
     text = text.strip()
-    return bool(re.match(r"^(https?://|www\.)", text)) or bool(
+    result = bool(re.match(r"^(https?://|www\.)", text)) or bool(
         re.search(r"linkedin\.com/in/", text, re.IGNORECASE)
     )
+    logger.debug("_is_url(text=%s) => %s", text[:120], result)
+    return result
 
 
 def _try_parse_json(text: str) -> dict | None:

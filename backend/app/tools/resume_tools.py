@@ -6,9 +6,32 @@ import json
 import logging
 import re
 
+from pydantic import BaseModel, Field
 from langchain_core.tools import tool
 
 logger = logging.getLogger(__name__)
+
+
+class AtsScoreOutput(BaseModel):
+    atsScore: int = Field(description="ATS compatibility score 0-100")
+    wordCount: int = Field(description="Word count of resume")
+    hasContactInfo: bool = False
+    hasStandardSections: bool = False
+    issues: list[str] = Field(default_factory=list)
+
+
+class SkillMatchOutput(BaseModel):
+    skillMatch: int = Field(description="Skill match percentage 0-100")
+    presentSkills: list[str] = Field(default_factory=list)
+    missingSkills: list[str] = Field(default_factory=list)
+    detectedRole: str = ""
+
+
+class GrammarReviewOutput(BaseModel):
+    passiveVoiceRatio: float = 0.0
+    weakPhrasesFound: int = 0
+    totalSentences: int = 0
+    suggestions: list[str] = Field(default_factory=list)
 
 ROLE_SKILLS = {
     "ai": ["Python", "LangChain", "RAG", "LLM", "MLOps", "Vector Database", "FastAPI"],
@@ -96,15 +119,15 @@ def score_ats_compatibility(resume_text: str, role: str) -> str:
     if word_count > 1200:
         issues.append(f"Resume may be too long ({word_count} words — aim for under 1000)")
 
-    result = {
-        "atsScore": score,
-        "wordCount": word_count,
-        "hasContactInfo": has_email or has_phone,
-        "hasStandardSections": has_sections,
-        "issues": issues,
-    }
-    logger.info("score_ats_compatibility: score=%s words=%s", score, word_count)
-    return json.dumps(result)
+    result = AtsScoreOutput(
+        atsScore=score,
+        wordCount=word_count,
+        hasContactInfo=has_email or has_phone,
+        hasStandardSections=has_sections,
+        issues=issues,
+    )
+    logger.info("score_ats_compatibility: score=%s words=%s", result.atsScore, result.wordCount)
+    return result.model_dump_json()
 
 
 @tool
@@ -131,14 +154,14 @@ def match_skills(resume_text: str, role: str) -> str:
     missing = [skill for skill in skills if skill not in present]
     match_pct = round((len(present) / len(skills)) * 100)
 
-    result = {
-        "skillMatch": match_pct,
-        "presentSkills": present,
-        "missingSkills": missing,
-        "detectedRole": bucket,
-    }
-    logger.info("match_skills: %s match=%s%% present=%s", bucket, match_pct, present)
-    return json.dumps(result)
+    result = SkillMatchOutput(
+        skillMatch=match_pct,
+        presentSkills=present,
+        missingSkills=missing,
+        detectedRole=bucket,
+    )
+    logger.info("match_skills: %s match=%s%% present=%s", bucket, result.skillMatch, result.presentSkills)
+    return result.model_dump_json()
 
 
 @tool
@@ -167,10 +190,11 @@ def review_grammar(resume_text: str) -> str:
     if total_sentences < 10:
         suggestions.append("Add more detailed bullet points with measurable outcomes")
 
-    result = {
-        "passiveVoiceRatio": passive_ratio,
-        "weakPhrasesFound": weak_count,
-        "totalSentences": total_sentences,
-        "suggestions": suggestions,
-    }
-    return json.dumps(result)
+    result = GrammarReviewOutput(
+        passiveVoiceRatio=passive_ratio,
+        weakPhrasesFound=weak_count,
+        totalSentences=total_sentences,
+        suggestions=suggestions,
+    )
+    logger.info("review_grammar: passive=%s%% weak=%d sentences=%d", result.passiveVoiceRatio, result.weakPhrasesFound, result.totalSentences)
+    return result.model_dump_json()

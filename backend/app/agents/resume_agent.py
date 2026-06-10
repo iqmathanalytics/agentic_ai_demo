@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 
 from langchain.agents import create_agent
 
@@ -10,7 +11,15 @@ from app.graphs.workflow import describe_langgraph_workflow
 from app.models.schemas import AgentEvent, AgentRunRequest
 from app.prompts.templates import RESUME_AGENT_SYSTEM_PROMPT
 from app.services.llm_factory import create_chat_model
-from app.tools.resume_tools import match_skills, parse_resume, review_grammar, score_ats_compatibility
+from app.tools.resume_tools import (
+    AtsScoreOutput,
+    GrammarReviewOutput,
+    SkillMatchOutput,
+    match_skills,
+    parse_resume,
+    review_grammar,
+    score_ats_compatibility,
+)
 from app.utils.events import SendEvent, emit
 
 logger = logging.getLogger(__name__)
@@ -46,33 +55,77 @@ def _extract_resume_result(tool_history: list[dict], report_text: str) -> dict:
         "report": report_text,
     }
 
+    logger.info("=== _extract_resume_result: %d tool entries in history ===", len(tool_history))
+
     for entry in tool_history:
         raw = entry.get("result", "")
-        if not raw:
-            continue
-        try:
-            parsed = json.loads(raw)
-        except (json.JSONDecodeError, TypeError):
-            continue
-        if not isinstance(parsed, dict):
-            continue
-
         tool_name = entry.get("tool", "")
 
+        logger.info("Tool entry #%s: tool=%s result_len=%d preview=%s...",
+                     entry.get("tool_index", "?"), tool_name,
+                     len(raw) if raw else 0, raw[:300] if raw else "EMPTY")
+
+        if not raw:
+            logger.warning("Tool %s: empty result", tool_name)
+            continue
+
+        try:
+            parsed = json.loads(raw)
+        except (json.JSONDecodeError, TypeError) as e:
+            logger.error("Tool %s: JSON parse failed: %s  raw=%s", tool_name, e, raw[:500])
+            continue
+
+        if not isinstance(parsed, dict):
+            logger.warning("Tool %s: parsed result is not a dict, got %s", tool_name, type(parsed).__name__)
+            continue
+
+        logger.info("Tool %s: parsed JSON keys=%s  values=%s",
+                     tool_name, list(parsed.keys()), parsed)
+
         if tool_name == "score_ats_compatibility":
-            result["atsScore"] = parsed.get("atsScore")
-            result["suggestions"] = parsed.get("issues", result["suggestions"])
+            raw_ats = parsed.get("atsScore")
+            logger.info(">>> Field: atsScore -> raw_value=%s (type=%s)", raw_ats, type(raw_ats).__name__ if raw_ats is not None else "NoneType")
+            result["atsScore"] = raw_ats
+            issues = parsed.get("issues", [])
+            if issues:
+                result["suggestions"] = issues
 
         elif tool_name == "match_skills":
-            result["skillMatch"] = parsed.get("skillMatch")
+            raw_skill = parsed.get("skillMatch")
+            logger.info(">>> Field: skillMatch -> raw_value=%s (type=%s)", raw_skill, type(raw_skill).__name__ if raw_skill is not None else "NoneType")
+            result["skillMatch"] = raw_skill
             result["missingSkills"] = parsed.get("missingSkills", [])
-            result["strengths"] = parsed.get("presentSkills", [])[:4]
+            present = parsed.get("presentSkills", [])
+            result["strengths"] = present[:4]
+            logger.info(">>> Field: missingSkills=%d strengths=%d", len(result["missingSkills"]), len(result["strengths"]))
 
         elif tool_name == "review_grammar":
             if parsed.get("suggestions"):
                 result["suggestions"] = result["suggestions"] + parsed["suggestions"]
+                logger.info(">>> review_grammar added %d suggestions", len(parsed["suggestions"]))
 
-    logger.info("Extracted resume result: ats=%s skill=%s strengths=%d missing=%d",
+    # If tool_history is empty, try to extract structured JSON from report_text
+    if not tool_history:
+        logger.warning("tool_history is EMPTY — falling back to LLM report parsing")
+        json_match = re.search(r"```json\s*(\{.*?\})\s*```", report_text, re.DOTALL)
+        if json_match:
+            try:
+                parsed = json.loads(json_match.group(1))
+                logger.info("Parsed JSON from LLM report: keys=%s", list(parsed.keys()))
+                result["atsScore"] = parsed.get("ats_score", parsed.get("atsScore", result["atsScore"]))
+                result["skillMatch"] = parsed.get("skill_match", parsed.get("skillMatch", result["skillMatch"]))
+                result["strengths"] = parsed.get("strengths", result["strengths"])
+                result["missingSkills"] = parsed.get("missing_skills", parsed.get("missingSkills", result["missingSkills"]))
+                recs = parsed.get("recommendations", parsed.get("suggestions", []))
+                if recs:
+                    result["suggestions"] = recs
+                logger.info("Fallback JSON parse: ats=%s skill=%s strengths=%d missing=%d",
+                            result["atsScore"], result["skillMatch"],
+                            len(result["strengths"]), len(result["missingSkills"]))
+            except json.JSONDecodeError as e:
+                logger.error("Fallback JSON parse failed: %s", e)
+
+    logger.info("=== FINAL extracted resume result: ats=%s skill=%s strengths=%d missing=%d ===",
                 result["atsScore"], result["skillMatch"],
                 len(result["strengths"]), len(result["missingSkills"]))
     return result
@@ -114,6 +167,57 @@ async def _run_agent_with_retry(
         if hasattr(msg, "content") and msg.content and hasattr(msg, "type") and msg.type == "ai":
             return msg.content
     return ""
+
+
+async def _run_tools_directly(
+    send: SendEvent,
+    resume_text: str,
+    role: str,
+    middleware: ToolEventMiddleware,
+) -> list[dict]:
+    """Fallback: call scoring tools directly if the LLM skipped them."""
+    logger.warning("Running tools directly as fallback (LLM did not call them)")
+
+    for tool_name, tool_fn, args in [
+        ("score_ats_compatibility", score_ats_compatibility, {"resume_text": resume_text, "role": role}),
+        ("match_skills", match_skills, {"resume_text": resume_text, "role": role}),
+        ("review_grammar", review_grammar, {"resume_text": resume_text}),
+    ]:
+        middleware.tool_index += 1
+        step = RESUME_STEP_MAP.get(tool_name)
+        step_id = step[0] if step else "resume_coach"
+        step_name = step[1] if step else "Resume Coach"
+
+        await emit(send, "tool_start", f"[Direct] {tool_name}", progress=0,
+                   agent_id=step_id, agent_name=step_name,
+                   payload={"tool": tool_name, "args": args, "tool_index": middleware.tool_index, "direct": True})
+
+        try:
+            raw_result = tool_fn.invoke(args)
+        except Exception as exc:
+            logger.error("Direct tool %s failed: %s", tool_name, exc)
+            middleware.tool_history.append({
+                "tool_index": middleware.tool_index,
+                "tool": tool_name,
+                "args": args,
+                "result": json.dumps({"error": str(exc)}),
+                "result_preview": f"[Error] {exc}",
+            })
+            continue
+
+        middleware.tool_history.append({
+            "tool_index": middleware.tool_index,
+            "tool": tool_name,
+            "args": args,
+            "result": raw_result,
+            "result_preview": raw_result[:500],
+        })
+
+        await emit(send, "tool_end", f"[Direct] {tool_name} complete", progress=0,
+                   agent_id=step_id, agent_name=step_name,
+                   payload={"tool_index": middleware.tool_index, "tool": tool_name, "direct": True})
+
+    return middleware.tool_history
 
 
 async def run_resume_agent(request: AgentRunRequest, send: SendEvent) -> dict:
@@ -175,15 +279,26 @@ async def run_resume_agent(request: AgentRunRequest, send: SendEvent) -> dict:
                agent_id="parser", agent_name="Resume Parser Agent", status="completed",
                payload={"characters": len(resume_text)})
 
-    # --- STEP 2-5: Agent with scoring tools (no parse_resume, no base64) ---
+    # --- STEP 2-5: Agent with scoring tools (no base64) ---
     middleware = ToolEventMiddleware(send, "resume_coach", "Resume Review Agent", tool_step_map=RESUME_STEP_MAP)
 
     user_query = (
         f"Review this resume for a {role} position (experience level: {experience}).\n\n"
         f"Resume text:\n{resume_text}\n\n"
-        f"Call score_ats_compatibility, match_skills, and review_grammar with the resume text above. "
+        f"You MUST call score_ats_compatibility, match_skills, and review_grammar with the resume text above. "
+        f"Call all three tools before writing your report. "
         f"After gathering all tool results, provide a complete career coaching report "
-        f"based on the structured data from those tools. Keep the report concise."
+        f"based on the structured data from those tools. Keep the report concise.\n\n"
+        f"At the end of your report, include a JSON block on its own line:\n"
+        f"```json\n"
+        f"{{\n"
+        f'  "ats_score": <integer 0-100>,\n'
+        f'  "skill_match": <integer 0-100>,\n'
+        f'  "strengths": ["skill1", "skill2"],\n'
+        f'  "missing_skills": ["skill3", "skill4"],\n'
+        f'  "recommendations": ["rec1", "rec2"]\n'
+        f"}}\n"
+        f"```"
     )
 
     await emit(send, "agent_running", "Agent analyzing resume with scoring tools...", 26,
@@ -227,7 +342,31 @@ async def run_resume_agent(request: AgentRunRequest, send: SendEvent) -> dict:
     if not output_text and last_error:
         raise Exception(last_error)
 
+    # --- Log raw LLM response before parsing ---
+    logger.info("=== RAW LLM RESPONSE (first 2000 chars) ===")
+    logger.info(output_text[:2000])
+    logger.info("=== END RAW LLM RESPONSE ===")
+
+    # --- Extract result from tool history ---
+    if not middleware.tool_history:
+        logger.warning("LLM did not call any tools — running tools directly as fallback")
+        await emit(send, "log",
+                   "Falling back to direct tool execution...",
+                   progress=60, agent_id="resume_coach", agent_name="Resume Review Agent")
+        await _run_tools_directly(send, resume_text, role, middleware)
+
     report_data = _extract_resume_result(middleware.tool_history, output_text)
+
+    # If both tool history and JSON fallback failed, attach raw response
+    if report_data["atsScore"] is None and report_data["skillMatch"] is None:
+        logger.warning("Extraction produced None values — attaching raw LLM response")
+        report_data["_raw_llm_response"] = output_text[:5000]
+        report_data["report"] = (
+            report_data.get("report", "")
+            + "\n\n---\n*Note: Structured scores could not be parsed from the LLM response. "
+            "Raw response is included for debugging.*"
+        )
+
     report_data["toolCalls"] = middleware.tool_history
 
     await send(AgentEvent(
