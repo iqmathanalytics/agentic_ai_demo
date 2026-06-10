@@ -2,6 +2,25 @@ import { useState, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { AGENT_CONFIGS } from "./agentsData";
 
+export const PROVIDER_MODELS = {
+  openai: ["gpt-4.1-mini", "gpt-4.1", "gpt-4o-mini", "gpt-4o"],
+  gemini: ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.0-flash"],
+  claude: ["claude-3-5-sonnet-latest", "claude-3-5-haiku-latest", "claude-3-opus-latest"],
+  openrouter: [
+    "openai/gpt-4o-mini",
+    "anthropic/claude-3.5-sonnet",
+    "google/gemini-flash-1.5",
+    "meta-llama/llama-3.1-70b-instruct",
+  ],
+};
+
+const PROVIDER_LABELS = {
+  openai: "OpenAI",
+  gemini: "Gemini",
+  claude: "Claude",
+  openrouter: "OpenRouter",
+};
+
 const backdrop = {
   hidden: { opacity: 0 },
   visible: { opacity: 1 },
@@ -57,6 +76,219 @@ function ModalWrapper({ isOpen, onClose, title, gradient, children }) {
         </motion.div>
       )}
     </AnimatePresence>
+  );
+}
+
+function AIProviderModal({ isOpen, onClose, onSave }) {
+  const [form, setForm] = useState({
+    provider: "openai",
+    model: PROVIDER_MODELS.openai[0],
+    apiKey: "",
+    remember: true,
+  });
+
+  const setProvider = (provider) => {
+    setForm((prev) => ({
+      ...prev,
+      provider,
+      model: PROVIDER_MODELS[provider][0],
+    }));
+  };
+
+  const handleSubmit = (event) => {
+    event.preventDefault();
+    if (!form.apiKey.trim()) return;
+    onSave(
+      {
+        provider: form.provider,
+        model: form.model,
+        apiKey: form.apiKey.trim(),
+      },
+      form.remember
+    );
+    setForm((prev) => ({ ...prev, apiKey: "" }));
+  };
+
+  return (
+    <ModalWrapper
+      isOpen={isOpen}
+      onClose={onClose}
+      title="Connect Your AI Model"
+      gradient="from-cyan-500 to-blue-500"
+    >
+      <form onSubmit={handleSubmit} className="space-y-5">
+        <p className="text-sm text-slate-400 leading-relaxed">
+          Connect your preferred AI provider to enable real-time agent execution.
+        </p>
+
+        <div>
+          <label className="block text-slate-300 text-xs font-medium mb-1.5">Provider</label>
+          <select
+            value={form.provider}
+            onChange={(event) => setProvider(event.target.value)}
+            className="w-full px-3 py-2.5 rounded-lg bg-white/5 border border-white/10 text-white text-sm focus:outline-none focus:border-blue-500/50"
+          >
+            {Object.entries(PROVIDER_LABELS).map(([value, label]) => (
+              <option key={value} value={value} className="bg-[#121826]">
+                {label}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div>
+          <label className="block text-slate-300 text-xs font-medium mb-1.5">Model</label>
+          <select
+            value={form.model}
+            onChange={(event) => setForm({ ...form, model: event.target.value })}
+            className="w-full px-3 py-2.5 rounded-lg bg-white/5 border border-white/10 text-white text-sm focus:outline-none focus:border-blue-500/50"
+          >
+            {PROVIDER_MODELS[form.provider].map((model) => (
+              <option key={model} value={model} className="bg-[#121826]">
+                {model}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div>
+          <label className="block text-slate-300 text-xs font-medium mb-1.5">API Key</label>
+          <input
+            type="password"
+            value={form.apiKey}
+            onChange={(event) => setForm({ ...form, apiKey: event.target.value })}
+            placeholder="Paste your provider API key"
+            className="w-full px-3 py-2.5 rounded-lg bg-white/5 border border-white/10 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500/50"
+            required
+          />
+        </div>
+
+        <label className="flex items-center gap-2 text-xs text-slate-300">
+          <input
+            type="checkbox"
+            checked={form.remember}
+            onChange={(event) => setForm({ ...form, remember: event.target.checked })}
+            className="h-4 w-4 rounded border-white/10 bg-white/5"
+          />
+          Remember This Device
+        </label>
+
+        <div className="grid grid-cols-2 gap-3">
+          <button
+            type="button"
+            onClick={onClose}
+            className="py-3 rounded-xl border border-white/10 bg-white/5 text-slate-300 font-semibold text-sm hover:bg-white/10 transition-all"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            className="py-3 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-500 text-white font-semibold text-sm hover:shadow-lg hover:shadow-cyan-500/20 transition-all"
+          >
+            Connect & Continue
+          </button>
+        </div>
+      </form>
+    </ModalWrapper>
+  );
+}
+
+function SettingsModal({
+  isOpen,
+  onClose,
+  credentials,
+  apiBase,
+  onDeleteKey,
+  onChangeProvider,
+}) {
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState("");
+
+  const testConnection = async () => {
+    if (!credentials) return;
+    setTesting(true);
+    setTestResult("");
+    try {
+      const response = await fetch(`${apiBase}/api/providers/test`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          provider: credentials.provider,
+          model: credentials.model,
+          api_key: credentials.apiKey,
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || "Connection test failed.");
+      setTestResult(data.ok ? "Connection verified." : `Provider replied: ${data.message}`);
+    } catch (error) {
+      setTestResult(error.message);
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  return (
+    <ModalWrapper isOpen={isOpen} onClose={onClose} title="AI Providers" gradient="from-blue-500 to-cyan-500">
+      <div className="space-y-4">
+        <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-xs uppercase tracking-wider text-slate-500">Connection Status</span>
+            <span className={`text-xs font-semibold ${credentials ? "text-emerald-400" : "text-amber-400"}`}>
+              {credentials ? "● AI Connected" : "● API Key Required"}
+            </span>
+          </div>
+          <div className="grid grid-cols-2 gap-3 text-sm">
+            <div>
+              <div className="text-[10px] uppercase tracking-wider text-slate-500">Current Provider</div>
+              <div className="text-white mt-1">{credentials ? PROVIDER_LABELS[credentials.provider] : "Not connected"}</div>
+            </div>
+            <div>
+              <div className="text-[10px] uppercase tracking-wider text-slate-500">Current Model</div>
+              <div className="text-white mt-1 break-all">{credentials?.model || "Not selected"}</div>
+            </div>
+          </div>
+        </div>
+
+        {testResult && (
+          <div className="rounded-lg border border-white/10 bg-black/30 p-3 text-xs text-slate-300">
+            {testResult}
+          </div>
+        )}
+
+        <div className="grid grid-cols-2 gap-3">
+          <button
+            type="button"
+            onClick={onChangeProvider}
+            className="py-2.5 rounded-xl border border-white/10 bg-white/5 text-white text-sm font-medium hover:bg-white/10"
+          >
+            Update Key
+          </button>
+          <button
+            type="button"
+            onClick={onChangeProvider}
+            className="py-2.5 rounded-xl border border-white/10 bg-white/5 text-white text-sm font-medium hover:bg-white/10"
+          >
+            Change Provider
+          </button>
+          <button
+            type="button"
+            onClick={onDeleteKey}
+            className="py-2.5 rounded-xl border border-red-500/20 bg-red-500/10 text-red-300 text-sm font-medium hover:bg-red-500/15"
+          >
+            Delete Key
+          </button>
+          <button
+            type="button"
+            disabled={!credentials || testing}
+            onClick={testConnection}
+            className="py-2.5 rounded-xl border border-cyan-500/20 bg-cyan-500/10 text-cyan-300 text-sm font-medium hover:bg-cyan-500/15 disabled:opacity-50"
+          >
+            {testing ? "Testing..." : "Test Connection"}
+          </button>
+        </div>
+      </div>
+    </ModalWrapper>
   );
 }
 
@@ -313,9 +545,33 @@ function LinkedInModal({ isOpen, onClose, onSubmit }) {
   );
 }
 
-export function Modals({ activeModal, onClose, onStockSubmit, onResumeSubmit, onLinkedInSubmit }) {
+export function Modals({
+  activeModal,
+  onClose,
+  credentials,
+  apiBase,
+  onCredentialsSave,
+  onDeleteKey,
+  onChangeProvider,
+  onStockSubmit,
+  onResumeSubmit,
+  onLinkedInSubmit,
+}) {
   return (
     <>
+      <AIProviderModal
+        isOpen={activeModal === "credentials"}
+        onClose={onClose}
+        onSave={onCredentialsSave}
+      />
+      <SettingsModal
+        isOpen={activeModal === "settings"}
+        onClose={onClose}
+        credentials={credentials}
+        apiBase={apiBase}
+        onDeleteKey={onDeleteKey}
+        onChangeProvider={onChangeProvider}
+      />
       <StockModal isOpen={activeModal === "stock"} onClose={onClose} onSubmit={onStockSubmit} />
       <ResumeModal isOpen={activeModal === "resume"} onClose={onClose} onSubmit={onResumeSubmit} />
       <LinkedInModal isOpen={activeModal === "linkedin"} onClose={onClose} onSubmit={onLinkedInSubmit} />

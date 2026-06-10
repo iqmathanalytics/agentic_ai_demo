@@ -1,0 +1,13 @@
+fastapi
+uvicorn[standard]
+pydantic
+python-multipart
+langchain
+langgraph
+langchain-openai
+langchain-google-genai
+langchain-anthropic
+pypdf
+python-docx
+yfinance
+httpx
