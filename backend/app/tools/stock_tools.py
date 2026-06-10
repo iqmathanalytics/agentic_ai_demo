@@ -7,30 +7,9 @@ from statistics import mean
 
 from langchain_core.tools import tool
 
+from app.tools.market_data import collect_market_data
+
 logger = logging.getLogger(__name__)
-
-
-def _get_yf_data(symbol: str, exchange: str) -> dict | None:
-    """Internal helper — fetch yfinance data once and cache for the tool chain."""
-    ticker = _map_ticker(symbol, exchange)
-    try:
-        import yfinance as yf
-    except ImportError:
-        logger.warning("yfinance not installed")
-        return None
-
-    try:
-        yf_ticker = yf.Ticker(ticker)
-        history = yf_ticker.history(period="6mo", interval="1d")
-        info = yf_ticker.info or {}
-        if history.empty:
-            logger.warning("Empty history for %s", ticker)
-            return None
-        closes = [float(v) for v in history["Close"].tail(60).tolist()]
-        return {"history": history, "closes": closes, "info": info, "ticker": ticker}
-    except Exception as exc:
-        logger.error("yfinance error for %s: %s", ticker, exc, exc_info=True)
-        return None
 
 
 def _map_ticker(symbol: str, exchange: str) -> str:
@@ -43,15 +22,72 @@ def _map_ticker(symbol: str, exchange: str) -> str:
     return s
 
 
+def _fetch_rich_data(symbol: str, exchange: str) -> dict | None:
+    """Try yfinance first for rich data (history+info). Fall back to multi-provider chain."""
+    ticker = _map_ticker(symbol, exchange)
+    try:
+        import yfinance as yf
+
+        yf_ticker = yf.Ticker(ticker)
+        history = yf_ticker.history(period="6mo", interval="1d")
+        info = yf_ticker.info or {}
+        if not history.empty:
+            closes = [float(v) for v in history["Close"].tail(60).tolist()]
+            return {"history": history, "closes": closes, "info": info, "ticker": ticker, "source": "yfinance"}
+        logger.warning("yfinance: empty history for %s", ticker)
+    except Exception as exc:
+        logger.warning("yfinance failed for %s: %s", ticker, exc)
+
+    logger.info("yfinance unavailable for %s, trying fallback providers...", ticker)
+    fallback = collect_market_data(symbol, exchange)
+    if fallback.get("available"):
+        logger.info("Fallback provider %s succeeded for %s", fallback.get("provider"), ticker)
+        return {
+            "history": None,
+            "closes": None,
+            "info": {
+                "marketCap": fallback.get("marketCap"),
+                "trailingPE": fallback.get("trailingPE"),
+                "sector": fallback.get("sector"),
+                "longName": symbol,
+                "shortName": symbol,
+            },
+            "ticker": fallback.get("ticker", ticker),
+            "source": "fallback",
+            "_fallback_data": fallback,
+        }
+
+    logger.error("All providers exhausted for %s", ticker)
+    return None
+
+
 @tool
 def get_stock_price_data(symbol: str, exchange: str = "NSE") -> str:
     """Fetch current stock price, change percentage, SMA20, SMA50, RSI, and volume.
 
     Call this first to get the core price and technical data for a stock.
     """
-    data = _get_yf_data(symbol, exchange)
+    data = _fetch_rich_data(symbol, exchange)
     if data is None:
         return json.dumps({"error": f"Could not fetch price data for {symbol} on {exchange}", "available": False})
+
+    if data.get("source") == "fallback":
+        fb = data["_fallback_data"]
+        result = {
+            "available": True,
+            "symbol": symbol,
+            "exchange": exchange,
+            "currentPrice": fb.get("currentPrice"),
+            "change": fb.get("change"),
+            "sma20": fb.get("sma20"),
+            "sma50": fb.get("sma50"),
+            "rsi": None,
+            "volume": fb.get("volume"),
+            "chartData": fb.get("chartData", []),
+            "source": fb.get("provider", "fallback"),
+        }
+        logger.info("get_stock_price_data (fallback): price=%s", result["currentPrice"])
+        return json.dumps(result)
 
     closes = data["closes"]
     latest = closes[-1]
@@ -88,6 +124,7 @@ def get_stock_price_data(symbol: str, exchange: str = "NSE") -> str:
         "rsi": rsi,
         "volume": volume,
         "chartData": chart_data,
+        "source": "yfinance",
     }
     logger.info("get_stock_price_data result: price=%s change=%s%%", result["currentPrice"], result["change"])
     return json.dumps(result)
@@ -99,7 +136,7 @@ def get_company_profile(symbol: str, exchange: str = "NSE") -> str:
 
     Use this to get fundamental reference data about a company.
     """
-    data = _get_yf_data(symbol, exchange)
+    data = _fetch_rich_data(symbol, exchange)
     if data is None:
         return json.dumps({"error": f"Could not fetch profile data for {symbol} on {exchange}", "available": False})
 
@@ -129,9 +166,16 @@ def get_fundamentals(symbol: str, exchange: str = "NSE") -> str:
 
     Call this for in-depth financial health analysis.
     """
-    data = _get_yf_data(symbol, exchange)
+    data = _fetch_rich_data(symbol, exchange)
     if data is None:
         return json.dumps({"error": f"Could not fetch fundamental data for {symbol} on {exchange}", "available": False})
+
+    if data.get("source") == "fallback":
+        return json.dumps({
+            "available": False,
+            "error": "Fundamental data not available from fallback provider. Try a different exchange or symbol.",
+            "note": "Fallback providers only supply price data, not fundamentals.",
+        })
 
     info = data["info"]
     result = {
@@ -245,9 +289,21 @@ def calculate_risk_metrics(symbol: str, exchange: str = "NSE") -> str:
 
     Provides risk assessment metrics based on historical price data.
     """
-    data = _get_yf_data(symbol, exchange)
+    data = _fetch_rich_data(symbol, exchange)
     if data is None:
         return json.dumps({"error": f"Could not fetch risk data for {symbol} on {exchange}", "available": False})
+
+    if data.get("source") == "fallback":
+        fb = data["_fallback_data"]
+        return json.dumps({
+            "available": True,
+            "symbol": symbol,
+            "exchange": exchange,
+            "note": "Limited risk data from fallback provider",
+            "volatility_20d": None,
+            "max_drawdown_pct": None,
+            "beta": None,
+        })
 
     closes = data["closes"]
     returns = [(closes[i] - closes[i - 1]) / closes[i - 1] * 100 for i in range(1, len(closes))]
