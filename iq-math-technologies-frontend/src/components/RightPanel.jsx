@@ -116,6 +116,14 @@ function ReportBlock({ title, report }) {
   );
 }
 
+function formatMarketCap(mc) {
+  if (mc == null) return "Unavailable";
+  if (mc >= 1e12) return `$${(mc / 1e12).toFixed(2)}T`;
+  if (mc >= 1e9) return `$${(mc / 1e9).toFixed(2)}B`;
+  if (mc >= 1e6) return `$${(mc / 1e6).toFixed(2)}M`;
+  return `$${mc.toLocaleString()}`;
+}
+
 function StockResults({ data }) {
   const hasChart = data?.chartData?.length > 0;
   return (
@@ -143,10 +151,12 @@ function StockResults({ data }) {
 
       <div className="grid sm:grid-cols-2 gap-3">
         {[
-          ["Current Price", data.currentPrice ?? "Unavailable"],
+          ["Current Price", data.currentPrice != null ? `$${data.currentPrice}` : "Unavailable"],
           ["Change", data.change != null ? `${data.change}%` : "Unavailable"],
           ["SMA 20", data.sma20 ?? "Unavailable"],
           ["SMA 50", data.sma50 ?? "Unavailable"],
+          ["Volume", data.volume != null ? data.volume.toLocaleString() : "Unavailable"],
+          ["Market Cap", formatMarketCap(data.marketCap)],
         ].map(([label, value]) => (
           <div key={label} className="p-3 rounded-lg bg-white/[0.03] border border-white/5">
             <div className="text-[10px] text-slate-500 uppercase tracking-wider">{label}</div>
@@ -257,7 +267,7 @@ function ResultsDisplay({ type, data }) {
   return null;
 }
 
-function IdleMissionControl({ logs, providerStatus, onOpenSettings }) {
+function IdleMissionControl({ logs, providerStatus, backendConnected, onOpenSettings }) {
   return (
     <div className="h-full grid lg:grid-cols-[1fr_280px] gap-4">
       <div className="rounded-xl bg-black/40 border border-white/5 p-4 flex flex-col">
@@ -275,7 +285,10 @@ function IdleMissionControl({ logs, providerStatus, onOpenSettings }) {
       <div className="space-y-3">
         <div className="rounded-xl bg-white/[0.03] border border-white/5 p-4">
           <div className="text-[10px] text-slate-500 uppercase tracking-wider">Agent Status Bar</div>
-          <div className="text-white font-semibold mt-2">Workspace Online</div>
+          <div className="flex items-center gap-2 mt-2">
+            <span className={`inline-block w-2 h-2 rounded-full ${backendConnected ? "bg-emerald-400 animate-pulse" : "bg-red-400"}`} />
+            <div className="text-white font-semibold text-sm">{backendConnected ? "Backend Connected" : "Backend Disconnected"}</div>
+          </div>
           <div className="text-xs text-slate-400 mt-1">{providerStatus}</div>
           <button
             type="button"
@@ -290,7 +303,7 @@ function IdleMissionControl({ logs, providerStatus, onOpenSettings }) {
           {Object.values(AGENT_CONFIGS).map((config) => (
             <div key={config.id} className="flex items-center justify-between py-2 border-b border-white/5 last:border-0">
               <span className="text-xs text-slate-300">{config.title}</span>
-              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              <span className={`h-1.5 w-1.5 rounded-full ${backendConnected ? "bg-emerald-400 animate-pulse" : "bg-slate-500"}`} />
             </div>
           ))}
         </div>
@@ -307,6 +320,7 @@ export default function RightPanel({
   progress,
   results,
   providerStatus,
+  backendConnected,
   lastError,
   onOpenSettings,
 }) {
@@ -316,7 +330,7 @@ export default function RightPanel({
   const isFailed = status === "failed";
 
   if (!config) {
-    return <IdleMissionControl logs={logs} providerStatus={providerStatus} onOpenSettings={onOpenSettings} />;
+    return <IdleMissionControl logs={logs} providerStatus={providerStatus} backendConnected={backendConnected} onOpenSettings={onOpenSettings} />;
   }
 
   return (
@@ -339,17 +353,23 @@ export default function RightPanel({
             <span className="text-[10px] text-slate-500 font-mono uppercase">{status}</span>
           </div>
         </div>
-        <button
-          type="button"
-          onClick={onOpenSettings}
-          className={`text-[10px] font-semibold rounded-lg px-2.5 py-1.5 border ${
-            providerStatus.includes("Connected")
-              ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-300"
-              : "border-amber-500/20 bg-amber-500/10 text-amber-300"
-          }`}
-        >
-          {providerStatus.includes("Connected") ? "● AI Connected" : "● API Key Required"}
-        </button>
+        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5">
+            <span className={`inline-block w-1.5 h-1.5 rounded-full ${backendConnected ? "bg-emerald-400" : "bg-red-400"}`} />
+            <span className="text-[10px] text-slate-500 font-mono">{backendConnected ? "BE Online" : "BE Offline"}</span>
+          </div>
+          <button
+            type="button"
+            onClick={onOpenSettings}
+            className={`text-[10px] font-semibold rounded-lg px-2.5 py-1.5 border ${
+              providerStatus.includes("Connected")
+                ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-300"
+                : "border-amber-500/20 bg-amber-500/10 text-amber-300"
+            }`}
+          >
+            {providerStatus.includes("Connected") ? "● AI Connected" : "● API Key Required"}
+          </button>
+        </div>
       </div>
 
       <div className="mb-4">
@@ -397,7 +417,9 @@ export default function RightPanel({
               <div className="text-sm text-slate-400">
                 {isRunning
                   ? "The final report will appear here as soon as the last agent completes."
-                  : "Submit the agent input form to start live execution."}
+                  : isFailed
+                    ? "Agent execution failed. Check the error message above."
+                    : "Submit the agent input form to start live execution."}
               </div>
             </div>
           )}

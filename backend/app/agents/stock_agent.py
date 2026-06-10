@@ -1,9 +1,13 @@
+import logging
+
 from app.graphs.workflow import describe_langgraph_workflow
 from app.models.schemas import AgentEvent, AgentRunRequest
 from app.prompts.templates import STOCK_REPORT_PROMPT
 from app.services.llm_factory import create_chat_model, invoke_text
 from app.tools.market_data import collect_market_data
 from app.utils.events import SendEvent, emit, heartbeat
+
+logger = logging.getLogger(__name__)
 
 STOCK_STEPS = [
     ("collector", "Data Collection Agent"),
@@ -29,6 +33,35 @@ async def run_stock_agent(request: AgentRunRequest, send: SendEvent) -> dict:
         ["Resolving exchange ticker...", "Loading historical prices...", "Checking company profile metadata..."],
     )
     market_data = collect_market_data(payload.get("symbol", ""), payload.get("exchange", "NSE"))
+    logger.info("Market data result: available=%s ticker=%s", market_data.get("available"), market_data.get("ticker"))
+
+    if not market_data.get("available"):
+        error_msg = market_data.get("error", "Market data unavailable.")
+        logger.error("STOP: market data fetch failed — %s", error_msg)
+        await emit(send, "agent_failed", f"Market data unavailable: {error_msg}", 24, agent_id="collector", agent_name="Data Collection Agent", status="failed", payload={"market_data": market_data, "error": error_msg})
+        result = {
+            "stockName": payload.get("name"),
+            "symbol": payload.get("symbol"),
+            "exchange": payload.get("exchange"),
+            "currentPrice": None,
+            "change": None,
+            "sma20": None,
+            "sma50": None,
+            "volume": None,
+            "marketCap": None,
+            "trailingPE": None,
+            "sector": None,
+            "sentiment": "Unavailable",
+            "risk": "Unavailable",
+            "recommendation": "Unavailable",
+            "confidence": 0,
+            "chartData": [],
+            "report": f"## Market Data Unavailable\n\nError: {error_msg}\n\nCould not fetch data for {payload.get('symbol')} on {payload.get('exchange')}. Check the symbol and try again.",
+            "marketData": market_data,
+        }
+        await send(AgentEvent(type="final", message="Stock analysis failed — market data unavailable.", progress=100, payload={"result": result}))
+        return result
+
     await emit(send, "agent_completed", "Market data collection complete.", 24, agent_id="collector", agent_name="Data Collection Agent", status="completed", payload={"market_data": market_data})
 
     await emit(send, "agent_started", "Running technical signal checks...", 28, agent_id="technical", agent_name="Technical Analysis Agent", status="running")
@@ -70,16 +103,18 @@ async def run_stock_agent(request: AgentRunRequest, send: SendEvent) -> dict:
     report = await invoke_text(llm, prompt)
     await emit(send, "agent_completed", "Investment report generated.", 96, agent_id="insight", agent_name="Investment Insights Agent", status="completed")
 
-    latest = market_data.get("currentPrice") if market_data.get("available") else None
-    change = market_data.get("change") if market_data.get("available") else None
     result = {
         "stockName": payload.get("name"),
         "symbol": payload.get("symbol"),
         "exchange": payload.get("exchange"),
-        "currentPrice": latest,
-        "change": change,
+        "currentPrice": market_data.get("currentPrice"),
+        "change": market_data.get("change"),
         "sma20": market_data.get("sma20"),
         "sma50": market_data.get("sma50"),
+        "volume": market_data.get("volume"),
+        "marketCap": market_data.get("marketCap"),
+        "trailingPE": market_data.get("trailingPE"),
+        "sector": market_data.get("sector"),
         "sentiment": "See report",
         "risk": "See report",
         "recommendation": "AI report generated",

@@ -58,12 +58,26 @@ export default function AIAgentsShowcase() {
   const [progress, setProgress] = useState(0);
   const [results, setResults] = useState(null);
   const [lastError, setLastError] = useState("");
+  const [backendConnected, setBackendConnected] = useState(false);
   const socketRef = useRef(null);
 
   useEffect(() => {
     setCredentials(loadCredentials());
+    checkBackendHealth();
     return () => socketRef.current?.close();
   }, []);
+
+  async function checkBackendHealth() {
+    try {
+      const resp = await fetch(`${API_BASE}/health`, { signal: AbortSignal.timeout(5000) });
+      const ok = resp.ok;
+      console.log("[HealthCheck] Backend at", API_BASE, ok ? "CONNECTED" : "UNREACHABLE", `(status ${resp.status})`);
+      setBackendConnected(ok);
+    } catch (err) {
+      console.error("[HealthCheck] Backend at", API_BASE, "NOT CONNECTED —", err.message);
+      setBackendConnected(false);
+    }
+  }
 
   const providerStatus = useMemo(
     () => (credentials ? `AI Connected: ${credentials.provider} / ${credentials.model}` : "API Key Required"),
@@ -147,8 +161,12 @@ export default function AIAgentsShowcase() {
           if (result) setResults(result);
           setStatus("completed");
           setProgress(100);
+          if (event.type === "run_completed") {
+            console.log("[Agent] Workflow completed successfully");
+          }
         }
         if (event.type === "run_failed" || event.type === "agent_failed") {
+          console.error("[Agent] Workflow failed:", event.message);
           setStatus("failed");
           setLastError(event.message || "Agent execution failed.");
           handleRuntimeAuthError(event.message);
@@ -156,6 +174,8 @@ export default function AIAgentsShowcase() {
       };
 
       socket.onerror = () => {
+        console.error("[WebSocket] Connection error — backend unreachable at", WS_BASE);
+        setBackendConnected(false);
         setStatus("failed");
         setLastError(`Unable to reach backend at ${API_BASE}. Start FastAPI and try again.`);
         appendLog(nowLine(`Runtime connection failed. Backend expected at ${API_BASE}.`));
@@ -285,6 +305,7 @@ export default function AIAgentsShowcase() {
                 progress={progress}
                 results={results}
                 providerStatus={providerStatus}
+                backendConnected={backendConnected}
                 lastError={lastError}
                 onOpenSettings={() => setActiveModal("settings")}
               />
