@@ -10,5 +10,5 @@ services:
       - key: PYTHON_VERSION
         value: 3.11.0
       - key: ALLOWED_ORIGINS
-        value: https://your-vercel-app.vercel.app
+        value: https://iq-math-technologies.vercel.app
     healthCheckPath: /health
