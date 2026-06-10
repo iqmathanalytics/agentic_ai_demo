@@ -2,7 +2,6 @@ import logging
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
-from app.agents.linkedin_agent import run_linkedin_agent
 from app.agents.resume_agent import run_resume_agent
 from app.agents.stock_agent import run_stock_agent
 from app.database.sqlite import save_run
@@ -15,7 +14,6 @@ router = APIRouter()
 RUNNERS = {
     "stock": run_stock_agent,
     "resume": run_resume_agent,
-    "linkedin": run_linkedin_agent,
 }
 
 _USER_402_MESSAGE = (

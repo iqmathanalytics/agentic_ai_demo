@@ -56,30 +56,6 @@ export const AGENT_CONFIGS = {
     experienceLevels: ["Fresher", "Intermediate", "Experienced"],
     resultType: "resume",
   },
-  linkedin: {
-    id: "linkedin",
-    title: "LinkedIn Profile Optimizer",
-    description:
-      "Review LinkedIn profiles and generate recommendations to improve visibility, engagement, and recruiter reach.",
-    tags: ["Profile Audit", "SEO Score", "Recruiter Insights", "Optimization"],
-    status: "Live",
-    gradient: "from-blue-500 to-indigo-500",
-    workflow: [
-      { id: "scanner", name: "Profile Scanner", icon: "🔍", status: "idle" },
-      { id: "keyword", name: "Keyword Optimizer", icon: "🔑", status: "idle" },
-      { id: "visibility", name: "Recruiter Visibility Agent", icon: "👁️", status: "idle" },
-      { id: "engagement", name: "Engagement Analyzer", icon: "📱", status: "idle" },
-    ],
-    logs: [
-      "Scanning profile...",
-      "Analyzing headline...",
-      "Checking keywords...",
-      "Evaluating visibility...",
-      "Generating recommendations...",
-      "Analysis complete.",
-    ],
-    resultType: "linkedin",
-  },
 };
 
 export function generateMockResults(type) {
@@ -126,28 +102,6 @@ export function generateMockResults(type) {
         "Add quantifiable achievements",
         "Include a professional summary",
         "Optimize for ATS keywords",
-      ],
-    };
-  }
-  if (type === "linkedin") {
-    return {
-      profileScore: 58,
-      visibilityScore: 45,
-      headlineSuggestions: [
-        "Add industry keywords to headline",
-        "Include your value proposition",
-        "Mention key technologies",
-      ],
-      keywordRecommendations: [
-        "Add 'AI Engineering' to skills",
-        "Include 'Agentic Systems' expertise",
-        "Add 'MLOps' to your profile",
-      ],
-      tips: [
-        "Optimize your about section",
-        "Add more relevant experience",
-        "Get endorsements for top skills",
-        "Post regular content",
       ],
     };
   }

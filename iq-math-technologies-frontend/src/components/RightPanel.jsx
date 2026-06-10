@@ -199,35 +199,6 @@ function ResumeResults({ data }) {
   );
 }
 
-function LinkedInResults({ data }) {
-  return (
-    <div className="space-y-4">
-      <div className="grid sm:grid-cols-2 gap-3">
-        {[
-          ["Profile Score", `${data.profileScore}/100`, data.profileScore],
-          ["Visibility Score", `${data.visibilityScore}/100`, data.visibilityScore],
-        ].map(([label, value, pct]) => (
-          <div key={label} className="p-3 rounded-lg bg-white/[0.03] border border-white/5">
-            <div className="text-[10px] text-slate-500 uppercase tracking-wider">{label}</div>
-            <div className="text-2xl font-bold text-white mt-1">{value}</div>
-            <div className="w-full h-1.5 rounded-full bg-white/5 mt-2 overflow-hidden">
-              <motion.div
-                initial={{ width: 0 }}
-                animate={{ width: `${pct}%` }}
-                className="h-full rounded-full bg-gradient-to-r from-blue-500 to-cyan-500"
-              />
-            </div>
-          </div>
-        ))}
-      </div>
-      <ResultList title="Headline Suggestions" items={data.headlineSuggestions} tone="text-blue-300" marker="→" />
-      <TagList title="Keyword Suggestions" items={data.keywordRecommendations} />
-      <ResultList title="Improvement Recommendations" items={data.tips} tone="text-slate-300" marker="◆" />
-      <ReportBlock title="Optimization Report" report={data.report} />
-    </div>
-  );
-}
-
 function ResultList({ title, items = [], tone, marker }) {
   if (!items.length) return null;
   return (
@@ -263,7 +234,6 @@ function ResultsDisplay({ type, data }) {
   if (!data) return null;
   if (type === "stock") return <StockResults data={data} />;
   if (type === "resume") return <ResumeResults data={data} />;
-  if (type === "linkedin") return <LinkedInResults data={data} />;
   return null;
 }
 

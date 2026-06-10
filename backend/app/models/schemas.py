@@ -3,7 +3,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 Provider = Literal["openai", "gemini", "claude", "openrouter", "groq"]
-AgentKind = Literal["stock", "resume", "linkedin"]
+AgentKind = Literal["stock", "resume"]
 EventType = Literal[
     "run_started",
     "agent_started",

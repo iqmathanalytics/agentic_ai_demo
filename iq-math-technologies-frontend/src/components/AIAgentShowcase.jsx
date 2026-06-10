@@ -227,7 +227,6 @@ export default function AIAgentsShowcase() {
 
   const handleStockSubmit = useCallback((formData) => runAgent("stock", formData), [runAgent]);
   const handleResumeSubmit = useCallback((formData) => runAgent("resume", formData), [runAgent]);
-  const handleLinkedInSubmit = useCallback((formData) => runAgent("linkedin", { url: formData }), [runAgent]);
 
   const handleRunAgain = useCallback(() => {
     if (!selectedAgent) return;
@@ -336,7 +335,6 @@ export default function AIAgentsShowcase() {
         onChangeProvider={() => setActiveModal("credentials")}
         onStockSubmit={handleStockSubmit}
         onResumeSubmit={handleResumeSubmit}
-        onLinkedInSubmit={handleLinkedInSubmit}
       />
 
       <style>{`

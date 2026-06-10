@@ -525,43 +525,6 @@ function ResumeModal({ isOpen, onClose, onSubmit }) {
   );
 }
 
-function LinkedInModal({ isOpen, onClose, onSubmit }) {
-  const [url, setUrl] = useState("");
-  const config = AGENT_CONFIGS.linkedin;
-
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    if (!url) return;
-    onSubmit(url);
-    setUrl("");
-  };
-
-  return (
-    <ModalWrapper isOpen={isOpen} onClose={onClose} title={config.title} gradient={config.gradient}>
-      <form onSubmit={handleSubmit} className="space-y-5">
-        <div>
-          <label className="block text-slate-300 text-xs font-medium mb-1.5">LinkedIn Profile URL</label>
-          <input
-            type="url"
-            value={url}
-            onChange={(e) => setUrl(e.target.value)}
-            placeholder="https://linkedin.com/in/username"
-            className="w-full px-3 py-2.5 rounded-lg bg-white/5 border border-white/10 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/20 transition-all"
-            required
-          />
-        </div>
-
-        <button
-          type="submit"
-          className="w-full py-3 rounded-xl bg-gradient-to-r from-blue-500 to-indigo-500 text-white font-semibold text-sm hover:shadow-lg hover:shadow-blue-500/20 transition-all duration-300"
-        >
-          Analyze Profile
-        </button>
-      </form>
-    </ModalWrapper>
-  );
-}
-
 export function Modals({
   activeModal,
   onClose,
@@ -572,7 +535,6 @@ export function Modals({
   onChangeProvider,
   onStockSubmit,
   onResumeSubmit,
-  onLinkedInSubmit,
 }) {
   return (
     <>
@@ -591,7 +553,6 @@ export function Modals({
       />
       <StockModal isOpen={activeModal === "stock"} onClose={onClose} onSubmit={onStockSubmit} />
       <ResumeModal isOpen={activeModal === "resume"} onClose={onClose} onSubmit={onResumeSubmit} />
-      <LinkedInModal isOpen={activeModal === "linkedin"} onClose={onClose} onSubmit={onLinkedInSubmit} />
     </>
   );
 }
