@@ -2,6 +2,7 @@
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "framework": "vite",
+  "installCommand": "npm install",
   "env": {
     "VITE_AGENT_API_URL": "https://i-qmath-backend.onrender.com"
   },
