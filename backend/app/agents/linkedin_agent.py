@@ -1,56 +1,98 @@
+from __future__ import annotations
+
+import logging
+
+from langchain.agents import create_agent
+
+from app.agents.handlers import ToolEventMiddleware
 from app.graphs.workflow import describe_langgraph_workflow
 from app.models.schemas import AgentEvent, AgentRunRequest
-from app.prompts.templates import LINKEDIN_REPORT_PROMPT
-from app.services.llm_factory import create_chat_model, invoke_text
-from app.utils.events import SendEvent, emit, heartbeat
+from app.prompts.templates import LINKEDIN_AGENT_SYSTEM_PROMPT
+from app.services.llm_factory import create_chat_model
+from app.tools.linkedin_tools import analyze_profile, optimize_keywords, score_recruiter_visibility
+from app.utils.events import SendEvent, emit
 
-LINKEDIN_STEPS = [
-    ("scanner", "Profile Scanner"),
-    ("keyword", "Keyword Optimizer"),
-    ("visibility", "Recruiter Visibility Agent"),
-    ("engagement", "Engagement Analyzer"),
+logger = logging.getLogger(__name__)
+
+LINKEDIN_TOOLS = [
+    analyze_profile,
+    optimize_keywords,
+    score_recruiter_visibility,
 ]
 
 
 async def run_linkedin_agent(request: AgentRunRequest, send: SendEvent) -> dict:
     payload = request.input
-    workflow = describe_langgraph_workflow([step[0] for step in LINKEDIN_STEPS])
-    await send(AgentEvent(type="run_started", message="LinkedIn optimization workflow started.", progress=2, payload={"workflow": workflow}))
+    profile_url = payload.get("url", "")
+    target_role = payload.get("targetRole", payload.get("role", "Software Engineer"))
+    profile_text = payload.get("profileText", payload.get("profile", profile_url))
 
-    await emit(send, "agent_started", "Scanning profile signal...", 10, agent_id="scanner", agent_name="Profile Scanner", status="running")
-    await heartbeat(send, "scanner", "Profile Scanner", 10, 28, ["Validating public profile URL...", "Preparing profile audit checklist...", "Looking for identity and role signals..."])
-    await emit(send, "agent_completed", "Profile scan complete.", 30, agent_id="scanner", agent_name="Profile Scanner", status="completed")
+    workflow = describe_langgraph_workflow([t.name for t in LINKEDIN_TOOLS])
+    await send(AgentEvent(
+        type="run_started",
+        message=f"LinkedIn profile optimization started for role: {target_role}.",
+        progress=2,
+        payload={"workflow": workflow, "tools": [t.name for t in LINKEDIN_TOOLS]},
+    ))
 
-    await emit(send, "agent_started", "Optimizing recruiter keywords...", 36, agent_id="keyword", agent_name="Keyword Optimizer", status="running")
-    await heartbeat(send, "keyword", "Keyword Optimizer", 36, 52, ["Mapping target keyword clusters...", "Checking headline density...", "Preparing keyword recommendations..."])
-    await emit(send, "agent_completed", "Keyword optimization complete.", 54, agent_id="keyword", agent_name="Keyword Optimizer", status="completed")
-
-    await emit(send, "agent_started", "Scoring recruiter visibility...", 60, agent_id="visibility", agent_name="Recruiter Visibility Agent", status="running")
-    await heartbeat(send, "visibility", "Recruiter Visibility Agent", 60, 72, ["Reviewing search discoverability...", "Checking credibility signals...", "Scoring profile completeness..."])
-    await emit(send, "agent_completed", "Recruiter visibility pass complete.", 74, agent_id="visibility", agent_name="Recruiter Visibility Agent", status="completed")
-
-    await emit(send, "agent_started", "Generating engagement recommendations with the connected LLM...", 80, agent_id="engagement", agent_name="Engagement Analyzer", status="running")
-    await heartbeat(send, "engagement", "Engagement Analyzer", 80, 88, ["Assessing posting opportunities...", "Drafting improvement actions..."])
     llm = create_chat_model(request.credentials)
-    report = await invoke_text(llm, LINKEDIN_REPORT_PROMPT.format(url=payload.get("url", "")))
-    await emit(send, "agent_completed", "Engagement analysis complete.", 96, agent_id="engagement", agent_name="Engagement Analyzer", status="completed")
+    middleware = ToolEventMiddleware(send, "linkedin_strategist", "LinkedIn Optimization Agent")
 
-    result = {
-        "profileScore": 68,
-        "visibilityScore": 61,
-        "headlineSuggestions": [
-            "Lead with target role, domain, and measurable value.",
-            "Add high-intent keywords recruiters search for.",
-            "Avoid vague labels that do not map to a job family.",
-        ],
-        "keywordRecommendations": ["AI Engineering", "LangChain", "LangGraph", "RAG", "FastAPI", "LLM Applications"],
-        "tips": [
-            "Rewrite About section with a sharp first two lines.",
-            "Feature 2-3 proof-heavy projects with outcomes.",
-            "Post weekly breakdowns of problems solved and lessons learned.",
-        ],
-        "report": report,
+    agent = create_agent(
+        model=llm,
+        tools=LINKEDIN_TOOLS,
+        system_prompt=LINKEDIN_AGENT_SYSTEM_PROMPT,
+        middleware=[middleware],
+        name="linkedin_strategist",
+    )
+
+    user_query = (
+        f"Optimize this LinkedIn profile for a {target_role} position.\n\n"
+        f"Profile information: {profile_text}\n"
+        f"Profile URL: {profile_url}\n\n"
+        f"First, call analyze_profile to assess the profile. "
+        f"Then call optimize_keywords with the profile text and target role. "
+        f"Then call score_recruiter_visibility.\n\n"
+        f"After gathering all tool results, provide a complete optimization report.\n\n"
+        f"If any tool returns an error, report it and stop. Do not fabricate scores."
+    )
+
+    try:
+        result = await agent.ainvoke({"messages": [("human", user_query)]})
+        messages = result.get("messages", [])
+        output_text = ""
+        for msg in reversed(messages):
+            if hasattr(msg, "content") and msg.content and hasattr(msg, "type") and msg.type == "ai":
+                output_text = msg.content
+                break
+    except Exception as exc:
+        logger.error("LinkedIn agent execution failed: %s", exc, exc_info=True)
+        error_result = {
+            "error": str(exc),
+            "report": f"## LinkedIn Optimization Failed\n\n**Error:** {exc}\n\nTool-based analysis could not complete.",
+            "toolCalls": middleware.tool_history,
+        }
+        await send(AgentEvent(
+            type="agent_failed",
+            message=f"[Error] {exc}",
+            progress=100,
+            agent_id="linkedin_strategist",
+            agent_name="LinkedIn Optimization Agent",
+            status="failed",
+            payload={"error": str(exc), "toolCalls": middleware.tool_history},
+        ))
+        return error_result
+
+    report_data = {
+        "report": output_text,
+        "toolCalls": middleware.tool_history,
     }
-    await send(AgentEvent(type="final", message="Final LinkedIn optimization report ready.", progress=100, payload={"result": result}))
-    return result
 
+    await send(AgentEvent(
+        type="final",
+        message="LinkedIn optimization complete — based on profile analysis.",
+        progress=100,
+        payload={"result": report_data, "toolCalls": middleware.tool_history},
+    ))
+
+    return report_data

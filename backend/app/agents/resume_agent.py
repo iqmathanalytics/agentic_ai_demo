@@ -1,86 +1,99 @@
-import re
+from __future__ import annotations
 
+import logging
+
+from langchain.agents import create_agent
+
+from app.agents.handlers import ToolEventMiddleware
 from app.graphs.workflow import describe_langgraph_workflow
 from app.models.schemas import AgentEvent, AgentRunRequest
-from app.prompts.templates import RESUME_REPORT_PROMPT
-from app.services.llm_factory import create_chat_model, invoke_text
-from app.tools.resume_parser import parse_resume
-from app.utils.events import SendEvent, emit, heartbeat
+from app.prompts.templates import RESUME_AGENT_SYSTEM_PROMPT
+from app.services.llm_factory import create_chat_model
+from app.tools.resume_tools import match_skills, parse_resume, review_grammar, score_ats_compatibility
+from app.utils.events import SendEvent, emit
 
-RESUME_STEPS = [
-    ("parser", "Resume Parser Agent"),
-    ("ats", "ATS Scoring Agent"),
-    ("skill", "Skill Match Agent"),
-    ("grammar", "Grammar Review Agent"),
-    ("coach", "Career Coach Agent"),
+logger = logging.getLogger(__name__)
+
+RESUME_TOOLS = [
+    parse_resume,
+    score_ats_compatibility,
+    match_skills,
+    review_grammar,
 ]
-
-ROLE_SKILLS = {
-    "ai": ["Python", "LangChain", "RAG", "LLM", "MLOps", "Vector Database", "FastAPI"],
-    "data": ["SQL", "Python", "Dashboard", "Statistics", "ETL", "Machine Learning"],
-    "frontend": ["React", "TypeScript", "CSS", "Testing", "Accessibility", "Performance"],
-    "backend": ["API", "Database", "Docker", "Caching", "Testing", "Security"],
-}
-
-
-def _score_resume(text: str, role: str) -> dict:
-    lowered = f"{role} {text}".lower()
-    bucket = "ai" if "ai" in lowered or "machine" in lowered else "data" if "data" in lowered else "frontend" if "react" in lowered else "backend"
-    skills = ROLE_SKILLS[bucket]
-    present = [skill for skill in skills if skill.lower() in text.lower()]
-    missing = [skill for skill in skills if skill not in present]
-    word_count = len(re.findall(r"\w+", text))
-    ats = min(95, max(25, 40 + len(present) * 7 + (10 if word_count > 350 else 0)))
-    skill_match = round((len(present) / len(skills)) * 100)
-    return {"atsScore": ats, "skillMatch": skill_match, "present": present, "missingSkills": missing}
 
 
 async def run_resume_agent(request: AgentRunRequest, send: SendEvent) -> dict:
     payload = request.input
-    workflow = describe_langgraph_workflow([step[0] for step in RESUME_STEPS])
-    await send(AgentEvent(type="run_started", message="Resume review workflow started.", progress=2, payload={"workflow": workflow}))
+    file_name = payload.get("fileName", "")
+    file_data = payload.get("fileData", "")
+    role = payload.get("role", "")
+    experience = payload.get("experience", "")
 
-    await emit(send, "agent_started", "Parsing uploaded resume...", 8, agent_id="parser", agent_name="Resume Parser Agent", status="running")
-    await heartbeat(send, "parser", "Resume Parser Agent", 8, 22, ["Reading file bytes...", "Extracting text layer...", "Normalizing sections..."])
-    parsed = parse_resume(payload.get("fileName", ""), payload.get("fileData", ""))
-    resume_text = parsed.get("text", "")
-    if not resume_text:
-        raise ValueError(parsed.get("error") or "Could not extract text from resume.")
-    await emit(send, "agent_completed", "Resume text extracted.", 24, agent_id="parser", agent_name="Resume Parser Agent", status="completed", payload={"characters": len(resume_text)})
+    workflow = describe_langgraph_workflow([t.name for t in RESUME_TOOLS])
+    await send(AgentEvent(
+        type="run_started",
+        message=f"Resume review started for role: {role}.",
+        progress=2,
+        payload={"workflow": workflow, "tools": [t.name for t in RESUME_TOOLS]},
+    ))
 
-    await emit(send, "agent_started", "Calculating ATS readiness...", 30, agent_id="ats", agent_name="ATS Scoring Agent", status="running")
-    await heartbeat(send, "ats", "ATS Scoring Agent", 30, 42, ["Checking section structure...", "Looking for measurable achievements...", "Scoring keyword density..."])
-    scores = _score_resume(resume_text, payload.get("role", ""))
-    await emit(send, "agent_completed", "ATS scoring complete.", 44, agent_id="ats", agent_name="ATS Scoring Agent", status="completed", payload=scores)
-
-    await emit(send, "agent_started", "Matching skills against target role...", 50, agent_id="skill", agent_name="Skill Match Agent", status="running")
-    await heartbeat(send, "skill", "Skill Match Agent", 50, 62, ["Building target skill map...", "Comparing resume evidence...", "Finding missing skills..."])
-    await emit(send, "agent_completed", "Skill match complete.", 64, agent_id="skill", agent_name="Skill Match Agent", status="completed")
-
-    await emit(send, "agent_started", "Reviewing grammar and recruiter readability...", 68, agent_id="grammar", agent_name="Grammar Review Agent", status="running")
-    await heartbeat(send, "grammar", "Grammar Review Agent", 68, 78, ["Checking passive phrasing...", "Reviewing bullet clarity...", "Finding formatting risks..."])
-    await emit(send, "agent_completed", "Grammar review complete.", 80, agent_id="grammar", agent_name="Grammar Review Agent", status="completed")
-
-    await emit(send, "agent_started", "Generating career coach feedback with the connected LLM...", 84, agent_id="coach", agent_name="Career Coach Agent", status="running")
     llm = create_chat_model(request.credentials)
-    prompt = RESUME_REPORT_PROMPT.format(
-        role=payload.get("role"),
-        experience=payload.get("experience"),
-        resume_text=resume_text[:12000],
+    middleware = ToolEventMiddleware(send, "resume_coach", "Resume Review Agent")
+
+    agent = create_agent(
+        model=llm,
+        tools=RESUME_TOOLS,
+        system_prompt=RESUME_AGENT_SYSTEM_PROMPT,
+        middleware=[middleware],
+        name="resume_coach",
     )
-    report = await invoke_text(llm, prompt)
-    await emit(send, "agent_completed", "Career coach report generated.", 96, agent_id="coach", agent_name="Career Coach Agent", status="completed")
 
-    result = {
-        "atsScore": scores["atsScore"],
-        "skillMatch": scores["skillMatch"],
-        "strengths": scores["present"][:4] or ["Relevant experience detected"],
-        "weaknesses": ["Add stronger quantified impact", "Align summary with target role", "Improve keyword coverage"],
-        "missingSkills": scores["missingSkills"],
-        "suggestions": ["Add metrics to each major project", "Use target-role keywords naturally", "Move strongest evidence to the top third"],
-        "recruiterFeedback": report,
-        "report": report,
+    file_data_short = (file_data[:200] + "...") if len(file_data) > 200 else file_data
+    user_query = (
+        f"Review this resume for a {role} position (experience level: {experience}).\n\n"
+        f"The file is named '{file_name}' and its base64 data is: {file_data_short}\n\n"
+        f"First, call parse_resume with the file name and the full base64 data to extract text. "
+        f"If it fails, report the error and stop.\n\n"
+        f"Then use the extracted text to call score_ats_compatibility, match_skills, and review_grammar. "
+        f"After gathering all tool results, provide a complete career coaching report."
+    )
+
+    try:
+        result = await agent.ainvoke({"messages": [("human", user_query)]})
+        messages = result.get("messages", [])
+        output_text = ""
+        for msg in reversed(messages):
+            if hasattr(msg, "content") and msg.content and hasattr(msg, "type") and msg.type == "ai":
+                output_text = msg.content
+                break
+    except Exception as exc:
+        logger.error("Resume agent execution failed: %s", exc, exc_info=True)
+        error_result = {
+            "error": str(exc),
+            "report": f"## Resume Review Failed\n\n**Error:** {exc}\n\nTool-based analysis could not complete.",
+            "toolCalls": middleware.tool_history,
+        }
+        await send(AgentEvent(
+            type="agent_failed",
+            message=f"[Error] {exc}",
+            progress=100,
+            agent_id="resume_coach",
+            agent_name="Resume Review Agent",
+            status="failed",
+            payload={"error": str(exc), "toolCalls": middleware.tool_history},
+        ))
+        return error_result
+
+    report_data = {
+        "report": output_text,
+        "toolCalls": middleware.tool_history,
     }
-    await send(AgentEvent(type="final", message="Final resume review ready.", progress=100, payload={"result": result}))
-    return result
 
+    await send(AgentEvent(
+        type="final",
+        message="Resume review complete — based on real parsed data.",
+        progress=100,
+        payload={"result": report_data, "toolCalls": middleware.tool_history},
+    ))
+
+    return report_data
