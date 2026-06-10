@@ -1,7 +1,7 @@
 from app.models.schemas import Credentials
 
 
-def create_chat_model(credentials: Credentials):
+def create_chat_model(credentials: Credentials, max_tokens: int = 4000):
     provider = credentials.provider.lower()
     if provider == "openai":
         from langchain_openai import ChatOpenAI
@@ -11,6 +11,7 @@ def create_chat_model(credentials: Credentials):
             api_key=credentials.api_key,
             temperature=0.2,
             streaming=True,
+            max_tokens=max_tokens,
         )
     if provider == "openrouter":
         from langchain_openai import ChatOpenAI
@@ -21,6 +22,7 @@ def create_chat_model(credentials: Credentials):
             base_url="https://openrouter.ai/api/v1",
             temperature=0.2,
             streaming=True,
+            max_tokens=max_tokens,
             default_headers={
                 "HTTP-Referer": "http://localhost:5173",
                 "X-Title": "IQ Math AI Agent Workspace",
@@ -34,6 +36,7 @@ def create_chat_model(credentials: Credentials):
             google_api_key=credentials.api_key,
             temperature=0.2,
             streaming=True,
+            max_tokens=max_tokens,
         )
     if provider == "claude":
         from langchain_anthropic import ChatAnthropic
@@ -43,6 +46,7 @@ def create_chat_model(credentials: Credentials):
             api_key=credentials.api_key,
             temperature=0.2,
             streaming=True,
+            max_tokens=max_tokens,
         )
     if provider == "groq":
         from langchain_groq import ChatGroq
@@ -52,6 +56,7 @@ def create_chat_model(credentials: Credentials):
             model_name=credentials.model,
             temperature=0.2,
             streaming=True,
+            max_tokens=max_tokens,
         )
     raise ValueError(f"Unsupported provider: {credentials.provider}")
 
@@ -62,4 +67,3 @@ async def invoke_text(llm, prompt: str) -> str:
     if isinstance(content, list):
         return "\n".join(str(part.get("text", part)) if isinstance(part, dict) else str(part) for part in content)
     return str(content)
-

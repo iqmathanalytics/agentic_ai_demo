@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 
 from langchain.agents import create_agent
@@ -29,6 +30,68 @@ STOCK_TOOLS = [
     analyze_sentiment,
     calculate_risk_metrics,
 ]
+
+
+def _extract_stock_result(tool_history: list[dict], symbol: str, exchange: str, name: str, report_text: str) -> dict:
+    """Reconstruct the structured stock data dict from tool call results."""
+    result = {
+        "stockName": name,
+        "symbol": symbol,
+        "exchange": exchange,
+        "currentPrice": None,
+        "change": None,
+        "sma20": None,
+        "sma50": None,
+        "volume": None,
+        "marketCap": None,
+        "trailingPE": None,
+        "sector": None,
+        "sentiment": None,
+        "risk": None,
+        "recommendation": None,
+        "confidence": None,
+        "chartData": [],
+        "report": report_text,
+    }
+
+    for entry in tool_history:
+        raw = entry.get("result", "")
+        if not raw:
+            continue
+        try:
+            parsed = json.loads(raw)
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if not isinstance(parsed, dict):
+            continue
+        if parsed.get("available") is False:
+            continue
+
+        tool_name = entry.get("tool", "")
+
+        if tool_name == "get_stock_price_data":
+            result["currentPrice"] = parsed.get("currentPrice")
+            result["change"] = parsed.get("change")
+            result["sma20"] = parsed.get("sma20")
+            result["sma50"] = parsed.get("sma50")
+            result["volume"] = parsed.get("volume")
+            result["chartData"] = parsed.get("chartData", [])
+
+        elif tool_name == "get_company_profile":
+            result["marketCap"] = parsed.get("marketCap")
+            result["trailingPE"] = parsed.get("trailingPE")
+            result["sector"] = parsed.get("sector")
+
+        elif tool_name == "analyze_sentiment":
+            result["sentiment"] = parsed.get("sentiment_label")
+
+        elif tool_name == "calculate_risk_metrics":
+            result["risk"] = parsed.get("volatility_label")
+
+    logger.info("Extracted stock result: price=%s change=%s sma20=%s sma50=%s vol=%s mcap=%s",
+                result["currentPrice"], result["change"], result["sma20"],
+                result["sma50"], result["volume"], result["marketCap"])
+    return result
 
 
 async def run_stock_agent(request: AgentRunRequest, send: SendEvent) -> dict:
@@ -69,8 +132,8 @@ async def run_stock_agent(request: AgentRunRequest, send: SendEvent) -> dict:
                payload={"tools": [t.name for t in STOCK_TOOLS]})
 
     try:
-        result = await agent.ainvoke({"messages": [("human", user_query)]})
-        messages = result.get("messages", [])
+        raw_result = await agent.ainvoke({"messages": [("human", user_query)]})
+        messages = raw_result.get("messages", [])
         output_text = ""
         for msg in reversed(messages):
             if hasattr(msg, "content") and msg.content and hasattr(msg, "type") and msg.type == "ai":
@@ -78,14 +141,9 @@ async def run_stock_agent(request: AgentRunRequest, send: SendEvent) -> dict:
                 break
     except Exception as exc:
         logger.error("Stock agent execution failed: %s", exc, exc_info=True)
-        error_result = {
-            "stockName": name,
-            "symbol": symbol,
-            "exchange": exchange,
-            "error": str(exc),
-            "report": f"## Stock Analysis Failed\n\n**Error:** {exc}\n\nTool-based analysis could not complete.",
-            "toolCalls": middleware.tool_history,
-        }
+        report_data = _extract_stock_result(middleware.tool_history, symbol, exchange, name, "")
+        report_data["error"] = str(exc)
+        report_data["report"] = f"## Stock Analysis Failed\n\n**Error:** {exc}\n\nTool-based analysis could not complete."
         await send(AgentEvent(
             type="agent_failed",
             message=f"[Error] {exc}",
@@ -93,17 +151,17 @@ async def run_stock_agent(request: AgentRunRequest, send: SendEvent) -> dict:
             agent_id="stock_analyst",
             agent_name="Stock Analysis Agent",
             status="failed",
-            payload={"error": str(exc), "toolCalls": middleware.tool_history},
+            payload={"result": report_data, "toolCalls": middleware.tool_history},
         ))
-        return error_result
+        return report_data
 
-    report_data = {
-        "stockName": name,
-        "symbol": symbol,
-        "exchange": exchange,
-        "report": output_text,
-        "toolCalls": middleware.tool_history,
-    }
+    report_data = _extract_stock_result(middleware.tool_history, symbol, exchange, name, output_text)
+    report_data["toolCalls"] = middleware.tool_history
+
+    logger.info("Final stock result payload: currentPrice=%s change=%s sma20=%s sma50=%s volume=%s marketCap=%s chartData=%d points",
+                report_data["currentPrice"], report_data["change"], report_data["sma20"],
+                report_data["sma50"], report_data["volume"], report_data["marketCap"],
+                len(report_data["chartData"]))
 
     await send(AgentEvent(
         type="final",
