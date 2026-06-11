@@ -396,78 +396,80 @@ export default function RightPanel({
         </motion.div>
       )}
 
-      <div className="flex-1 grid lg:grid-cols-[1fr_240px] gap-8 min-h-0">
-        <div className="space-y-8 overflow-y-auto custom-scrollbar pr-3 pb-10">
-          {!results && (
-            <div className="rounded-2xl bg-[#0B0F19] border border-white/5 p-6 shadow-2xl">
-              <div className="flex items-center justify-between mb-4">
-                <div className="text-[10px] text-slate-500 uppercase tracking-widest font-black">Live Telemetry</div>
-                <div className="flex gap-1">
-                  <span className={`w-1 h-1 rounded-full ${isRunning ? "bg-cyan-400 animate-ping" : "bg-slate-700"}`} />
-                  <span className="text-[9px] text-slate-600 font-mono">{isRunning ? "POLLING" : "IDLE"}</span>
+      <div className="flex-1 min-h-0 overflow-y-auto custom-scrollbar pr-3 pb-8">
+        {!results ? (
+          <div className="grid lg:grid-cols-[1fr_240px] gap-8 h-full">
+            <div className="space-y-8 flex flex-col h-full">
+              <div className="flex-1 rounded-2xl bg-[#0B0F19] border border-white/5 p-6 shadow-2xl flex flex-col min-h-[340px]">
+                <div className="flex items-center justify-between mb-4">
+                  <div className="text-[10px] text-slate-500 uppercase tracking-widest font-black">Live Telemetry</div>
+                  <div className="flex gap-1">
+                    <span className={`w-1 h-1 rounded-full ${isRunning ? "bg-cyan-400 animate-ping" : "bg-slate-700"}`} />
+                    <span className="text-[9px] text-slate-600 font-mono">{isRunning ? "POLLING" : "IDLE"}</span>
+                  </div>
+                </div>
+                <div className="flex-1 space-y-1 overflow-y-auto custom-scrollbar pr-2">
+                  {logs.map((log, index) => (
+                    <LogLine key={`${log}-${index}`} text={log} isLatest={index === logs.length - 1 && isRunning} />
+                  ))}
                 </div>
               </div>
-              <div className="space-y-1 max-h-[340px] overflow-y-auto custom-scrollbar">
-                {logs.map((log, index) => (
-                  <LogLine key={`${log}-${index}`} text={log} isLatest={index === logs.length - 1 && isRunning} />
+              
+              {!isRunning && !isCompleted && !isFailed && (
+                <div className="rounded-3xl bg-white/[0.02] border border-white/5 p-10 flex flex-col items-center justify-center text-center shadow-inner">
+                  <div className="w-16 h-16 rounded-full bg-gradient-to-tr from-cyan-500/20 to-blue-500/20 flex items-center justify-center text-3xl mb-5 border border-white/5 shadow-2xl">
+                    ⚡
+                  </div>
+                  <h4 className="text-white font-bold mb-2">Initialize Analysis</h4>
+                  <p className="text-xs text-slate-500 max-w-xs leading-relaxed">
+                    Provide the required inputs to start the multi-agent workflow. The system will coordinate and stream results here.
+                  </p>
+                </div>
+              )}
+            </div>
+
+            <div className="space-y-5 h-full">
+              <div className="text-[10px] text-slate-500 uppercase tracking-widest font-black mb-1">
+                Task Graph
+              </div>
+              <div className="space-y-3">
+                {workflow.map((step, index) => (
+                  <WorkflowStep key={step.id} step={step} status={step.status} index={index} />
                 ))}
               </div>
+              
+              {isRunning && (
+                <motion.div 
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  className="mt-8 p-5 rounded-2xl border border-indigo-500/20 bg-indigo-500/5"
+                >
+                  <div className="text-[10px] text-indigo-300 font-black uppercase tracking-widest mb-2">Agent Sync</div>
+                  <p className="text-[11px] text-slate-400 leading-relaxed italic opacity-80">
+                    Nodes are synchronized. Exchanging data packets between Career Coach and ATS modules...
+                  </p>
+                </motion.div>
+              )}
             </div>
-          )}
-
-          {results && (
-            <motion.div
-              initial={{ opacity: 0, y: 30 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="space-y-8"
-            >
-              <div className="flex items-center gap-4">
-                <div className="h-px flex-1 bg-white/5" />
-                <div className="text-[10px] text-emerald-400 uppercase tracking-[0.2em] font-black whitespace-nowrap px-4 py-1.5 rounded-full border border-emerald-500/20 bg-emerald-500/5">
-                  Analytical Report Ready
-                </div>
-                <div className="h-px flex-1 bg-white/5" />
+          </div>
+        ) : (
+          <motion.div
+            initial={{ opacity: 0, y: 30 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="space-y-8"
+          >
+            <div className="flex items-center gap-4">
+              <div className="h-px flex-1 bg-white/5" />
+              <div className="text-[10px] text-emerald-400 uppercase tracking-[0.2em] font-black whitespace-nowrap px-4 py-1.5 rounded-full border border-emerald-500/20 bg-emerald-500/5 flex items-center gap-2">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                Analytical Report Ready
               </div>
-              <ResultsDisplay type={config.resultType} data={results} />
-            </motion.div>
-          )}
-
-          {!results && !isRunning && !isCompleted && !isFailed && (
-            <div className="rounded-3xl bg-white/[0.02] border border-white/5 p-10 flex flex-col items-center justify-center text-center shadow-inner">
-              <div className="w-20 h-20 rounded-full bg-gradient-to-tr from-cyan-500/20 to-blue-500/20 flex items-center justify-center text-4xl mb-6 border border-white/5 shadow-2xl">
-                ⚡
-              </div>
-              <h4 className="text-white font-bold mb-2">Initialize Analysis</h4>
-              <p className="text-xs text-slate-500 max-w-xs leading-relaxed">
-                Provide the required inputs to start the multi-agent workflow. The system will coordinate and stream results here.
-              </p>
+              <div className="h-px flex-1 bg-white/5" />
             </div>
-          )}
-        </div>
-
-        <div className="space-y-5 overflow-y-auto custom-scrollbar pr-1 pb-10">
-          <div className="text-[10px] text-slate-500 uppercase tracking-widest font-black mb-1">
-            Task Graph
-          </div>
-          <div className="space-y-3">
-            {workflow.map((step, index) => (
-              <WorkflowStep key={step.id} step={step} status={step.status} index={index} />
-            ))}
-          </div>
-          
-          {isRunning && (
-            <motion.div 
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              className="mt-8 p-5 rounded-2xl border border-indigo-500/20 bg-indigo-500/5"
-            >
-              <div className="text-[10px] text-indigo-300 font-black uppercase tracking-widest mb-2">Agent Sync</div>
-              <p className="text-[11px] text-slate-400 leading-relaxed italic opacity-80">
-                Nodes are synchronized. Exchanging data packets between Career Coach and ATS modules...
-              </p>
-            </motion.div>
-          )}
-        </div>
+            
+            <ResultsDisplay type={config.resultType} data={results} />
+          </motion.div>
+        )}
       </div>
     </div>
   );
