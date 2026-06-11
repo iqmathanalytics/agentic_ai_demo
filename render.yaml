@@ -10,9 +10,23 @@ services:
       - key: PYTHON_VERSION
         value: 3.11.0
       - key: ALLOWED_ORIGINS
-        value: https://iq-math-technologies.vercel.app,http://localhost:5173,http://127.0.0.1:5173
+        value: https://iq-math-technologies.vercel.app,http://localhost:5173,http://127.0.0.1:5173,https://iq-math-frontend.onrender.com
       - key: ALPHA_VANTAGE_KEY
         value: QHFN2F26OZ9SV2IX
       - key: FINNHUB_KEY
         value: d8ki25pr01qjgd7050igd8ki25pr01qjgd7050j0
     healthCheckPath: /health
+
+  - type: web
+    name: iq-math-frontend
+    env: static
+    plan: free
+    rootDir: iq-math-technologies-frontend
+    buildCommand: npm install && npm run build
+    staticPublishPath: dist
+    envVars:
+      - key: VITE_AGENT_API_URL
+        fromService:
+          type: web
+          name: iq-math-backend
+          envVarKey: RENDER_EXTERNAL_URL
