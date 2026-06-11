@@ -20,7 +20,6 @@ services:
   - type: web
     name: iq-math-frontend
     env: static
-    plan: free
     rootDir: iq-math-technologies-frontend
     buildCommand: npm install && npm run build
     staticPublishPath: dist
