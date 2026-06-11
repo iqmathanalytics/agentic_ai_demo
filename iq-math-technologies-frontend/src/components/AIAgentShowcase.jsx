@@ -264,7 +264,7 @@ export default function AIAgentsShowcase() {
           </p>
         </motion.div>
 
-        <div className="grid lg:grid-cols-[380px_1fr] gap-6">
+        <div className="grid lg:grid-cols-[320px_1fr] gap-6">
           <motion.div
             initial={{ opacity: 0, x: -30 }}
             whileInView={{ opacity: 1, x: 0 }}

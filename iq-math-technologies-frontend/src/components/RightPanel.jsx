@@ -53,11 +53,13 @@ function WorkflowStep({ step, status, index }) {
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: index * 0.05 }}
-      className={`relative p-3 rounded-lg border transition-all duration-500 ${statusBg[status] || statusBg.idle}`}
+      className={`relative p-2.5 rounded-xl border transition-all duration-500 ${statusBg[status] || statusBg.idle}`}
     >
-      {index > 0 && <div className="absolute -top-2 left-6 h-2 w-px bg-white/10" />}
-      <div className="flex items-center gap-3">
-        <div className="w-8 h-8 rounded-lg border border-white/10 bg-black/30 flex items-center justify-center">
+      {index > 0 && <div className="absolute -top-2.5 left-5 h-2.5 w-px bg-white/10" />}
+      <div className="flex items-center gap-2.5">
+        <div className={`w-7 h-7 rounded-lg border flex items-center justify-center text-[10px] ${
+          status === "running" ? "border-cyan-500/50 bg-cyan-500/10" : "border-white/10 bg-black/30"
+        }`}>
           {status === "running" ? (
             <motion.span
               animate={{ scale: [1, 1.15, 1], opacity: [0.65, 1, 0.65] }}
@@ -71,11 +73,8 @@ function WorkflowStep({ step, status, index }) {
           )}
         </div>
         <div className="min-w-0 flex-1">
-          <div className={`text-sm font-medium ${status === "idle" ? "text-slate-500" : "text-white"}`}>
+          <div className={`text-[11px] font-semibold truncate ${status === "idle" ? "text-slate-500" : "text-white"}`}>
             {step.name}
-          </div>
-          <div className="text-[10px] uppercase tracking-wider text-slate-600 mt-0.5">
-            {status === "running" ? "executing" : status}
           </div>
         </div>
       </div>
@@ -85,12 +84,12 @@ function WorkflowStep({ step, status, index }) {
 
 function ProgressBar({ progress }) {
   return (
-    <div className="relative h-1.5 rounded-full bg-white/5 overflow-hidden">
+    <div className="relative h-2.5 rounded-full bg-white/5 p-[2px] overflow-hidden border border-white/5">
       <motion.div
-        className="absolute inset-y-0 left-0 rounded-full bg-gradient-to-r from-cyan-500 via-blue-500 to-emerald-400"
+        className="h-full rounded-full bg-gradient-to-r from-cyan-500 via-indigo-500 to-emerald-400"
         initial={{ width: 0 }}
         animate={{ width: `${progress}%` }}
-        transition={{ duration: 0.35, ease: "easeOut" }}
+        transition={{ duration: 0.5, ease: "circOut" }}
       />
     </div>
   );
@@ -99,9 +98,9 @@ function ProgressBar({ progress }) {
 function CustomTooltip({ active, payload }) {
   if (!active || !payload?.length) return null;
   return (
-    <div className="bg-[#121826] border border-white/10 rounded-lg px-3 py-2 shadow-xl">
-      <p className="text-white text-xs font-mono">{payload[0].payload.time}</p>
-      <p className="text-cyan-400 text-xs font-mono">{Number(payload[0].value).toFixed(2)}</p>
+    <div className="bg-[#0B0F19] border border-white/10 rounded-xl px-4 py-3 shadow-2xl backdrop-blur-md">
+      <p className="text-slate-500 text-[10px] font-mono mb-1 uppercase tracking-tighter">{payload[0].payload.time}</p>
+      <p className="text-cyan-400 text-sm font-bold font-mono">${Number(payload[0].value).toLocaleString()}</p>
     </div>
   );
 }
@@ -109,9 +108,14 @@ function CustomTooltip({ active, payload }) {
 function ReportBlock({ title, report }) {
   if (!report) return null;
   return (
-    <div className="rounded-xl bg-black/40 border border-white/5 p-4">
-      <div className="text-[10px] text-slate-500 uppercase tracking-wider mb-3">{title}</div>
-      <div className="whitespace-pre-wrap text-sm text-slate-300 leading-relaxed">{report}</div>
+    <div className="rounded-2xl bg-[#0B0F19] border border-white/5 p-6 shadow-inner">
+      <div className="text-[10px] text-slate-500 uppercase tracking-widest mb-5 font-bold flex items-center gap-3">
+        <div className="w-2 h-2 rounded-full bg-gradient-to-r from-cyan-400 to-blue-500" />
+        {title}
+      </div>
+      <div className="prose prose-invert max-w-none">
+        <div className="whitespace-pre-wrap text-[13px] text-slate-300 leading-relaxed font-sans opacity-90">{report}</div>
+      </div>
     </div>
   );
 }
@@ -127,74 +131,120 @@ function formatMarketCap(mc) {
 function StockResults({ data }) {
   const hasChart = data?.chartData?.length > 0;
   return (
-    <div className="space-y-4">
+    <div className="space-y-8">
       {hasChart && (
-        <div className="rounded-xl bg-black/40 border border-white/5 p-4">
-          <div className="text-[10px] text-slate-500 uppercase tracking-wider mb-3">Market Price Trend</div>
-          <ResponsiveContainer width="100%" height={180}>
+        <div className="rounded-2xl bg-white/[0.02] border border-white/5 p-6 backdrop-blur-sm">
+          <div className="flex items-center justify-between mb-6">
+            <div className="text-[10px] text-slate-500 uppercase tracking-widest font-bold">Historical Performance</div>
+            <div className="px-2 py-0.5 rounded-full bg-cyan-500/10 text-cyan-400 text-[10px] font-bold border border-cyan-500/20">LIVE DATA</div>
+          </div>
+          <ResponsiveContainer width="100%" height={240}>
             <AreaChart data={data.chartData}>
               <defs>
                 <linearGradient id="priceGradient" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#06B6D4" stopOpacity={0.3} />
+                  <stop offset="0%" stopColor="#06B6D4" stopOpacity={0.4} />
                   <stop offset="100%" stopColor="#06B6D4" stopOpacity={0} />
                 </linearGradient>
               </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
-              <XAxis dataKey="time" tick={{ fontSize: 10, fill: "#64748B" }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fontSize: 10, fill: "#64748B" }} axisLine={false} tickLine={false} />
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.03)" vertical={false} />
+              <XAxis dataKey="time" tick={{ fontSize: 9, fill: "#475569" }} axisLine={false} tickLine={false} />
+              <YAxis tick={{ fontSize: 9, fill: "#475569" }} axisLine={false} tickLine={false} />
               <Tooltip content={<CustomTooltip />} />
-              <Area type="monotone" dataKey="value" stroke="#06B6D4" strokeWidth={2} fill="url(#priceGradient)" />
+              <Area type="monotone" dataKey="value" stroke="#06B6D4" strokeWidth={2.5} fill="url(#priceGradient)" />
             </AreaChart>
           </ResponsiveContainer>
         </div>
       )}
 
-      <div className="grid sm:grid-cols-2 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-5">
         {[
-          ["Current Price", data.currentPrice != null ? `$${data.currentPrice}` : "Unavailable"],
-          ["Change", data.change != null ? `${data.change}%` : "Unavailable"],
-          ["SMA 20", data.sma20 ?? "Unavailable"],
-          ["SMA 50", data.sma50 ?? "Unavailable"],
-          ["Volume", data.volume != null ? data.volume.toLocaleString() : "Unavailable"],
-          ["Market Cap", formatMarketCap(data.marketCap)],
-        ].map(([label, value]) => (
-          <div key={label} className="p-3 rounded-lg bg-white/[0.03] border border-white/5">
-            <div className="text-[10px] text-slate-500 uppercase tracking-wider">{label}</div>
-            <div className="text-lg font-bold text-white mt-1">{value}</div>
+          ["Current Price", data.currentPrice != null ? `$${data.currentPrice.toLocaleString()}` : "N/A", "text-white"],
+          ["24h Change", data.change != null ? `${data.change}%` : "N/A", data.change >= 0 ? "text-emerald-400" : "text-rose-400"],
+          ["SMA 20 Day", data.sma20 ?? "N/A", "text-slate-300"],
+          ["SMA 50 Day", data.sma50 ?? "N/A", "text-slate-300"],
+          ["Trading Volume", data.volume != null ? data.volume.toLocaleString() : "N/A", "text-slate-300"],
+          ["Market Cap", formatMarketCap(data.marketCap), "text-slate-300"],
+        ].map(([label, value, color]) => (
+          <div key={label} className="p-5 rounded-2xl bg-[#121826] border border-white/5 transition-all hover:border-white/10 hover:shadow-xl">
+            <div className="text-[10px] text-slate-500 uppercase tracking-widest mb-2 font-bold">{label}</div>
+            <div className={`text-xl font-black ${color}`}>{value}</div>
           </div>
         ))}
       </div>
-      <ReportBlock title="Investment Report" report={data.report} />
+      <ReportBlock title="Investment Thesis & Risks" report={data.report} />
     </div>
   );
 }
 
 function ResumeResults({ data }) {
   return (
-    <div className="space-y-4">
-      <div className="grid sm:grid-cols-2 gap-3">
-        {[
-          ["ATS Score", `${data.atsScore}/100`, data.atsScore],
-          ["Skill Match", `${data.skillMatch}%`, data.skillMatch],
-        ].map(([label, value, pct]) => (
-          <div key={label} className="p-3 rounded-lg bg-white/[0.03] border border-white/5">
-            <div className="text-[10px] text-slate-500 uppercase tracking-wider">{label}</div>
-            <div className="text-2xl font-bold text-white mt-1">{value}</div>
-            <div className="w-full h-1.5 rounded-full bg-white/5 mt-2 overflow-hidden">
-              <motion.div
-                initial={{ width: 0 }}
-                animate={{ width: `${pct}%` }}
-                className="h-full rounded-full bg-gradient-to-r from-violet-500 to-cyan-500"
-              />
-            </div>
+    <div className="space-y-8">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+        <motion.div 
+          whileHover={{ y: -4 }}
+          className="p-6 rounded-2xl bg-gradient-to-br from-violet-600/10 via-purple-600/5 to-transparent border border-violet-500/20 shadow-lg shadow-violet-500/5"
+        >
+          <div className="flex items-center justify-between mb-3">
+            <div className="text-[10px] text-violet-400 uppercase tracking-widest font-black">ATS Match Potential</div>
+            <div className="text-[10px] font-bold text-violet-400 px-2 py-0.5 rounded bg-violet-500/10 border border-violet-500/20">PASSED</div>
           </div>
-        ))}
+          <div className="flex items-baseline gap-2">
+            <div className="text-5xl font-black text-white tracking-tighter">{data.atsScore}</div>
+            <div className="text-slate-500 text-lg font-bold">/ 100</div>
+          </div>
+          <div className="w-full h-2.5 rounded-full bg-black/40 mt-6 overflow-hidden border border-white/5 p-[1px]">
+            <motion.div
+              initial={{ width: 0 }}
+              animate={{ width: `${data.atsScore}%` }}
+              transition={{ duration: 1, ease: "circOut" }}
+              className="h-full rounded-full bg-gradient-to-r from-violet-500 to-indigo-500 shadow-[0_0_12px_rgba(139,92,246,0.5)]"
+            />
+          </div>
+        </motion.div>
+        
+        <motion.div 
+          whileHover={{ y: -4 }}
+          className="p-6 rounded-2xl bg-gradient-to-br from-cyan-600/10 via-blue-600/5 to-transparent border border-cyan-500/20 shadow-lg shadow-cyan-500/5"
+        >
+          <div className="flex items-center justify-between mb-3">
+            <div className="text-[10px] text-cyan-400 uppercase tracking-widest font-black">Target Role Alignment</div>
+            <div className="text-[10px] font-bold text-cyan-400 px-2 py-0.5 rounded bg-cyan-500/10 border border-cyan-500/20">HIGH</div>
+          </div>
+          <div className="flex items-baseline gap-2">
+            <div className="text-5xl font-black text-white tracking-tighter">{data.skillMatch}</div>
+            <div className="text-slate-500 text-lg font-bold">%</div>
+          </div>
+          <div className="w-full h-2.5 rounded-full bg-black/40 mt-6 overflow-hidden border border-white/5 p-[1px]">
+            <motion.div
+              initial={{ width: 0 }}
+              animate={{ width: `${data.skillMatch}%` }}
+              transition={{ duration: 1, ease: "circOut" }}
+              className="h-full rounded-full bg-gradient-to-r from-cyan-500 to-blue-500 shadow-[0_0_12px_rgba(6,182,212,0.5)]"
+            />
+          </div>
+        </motion.div>
       </div>
-      <ResultList title="Strengths" items={data.strengths} tone="text-emerald-400" marker="+" />
-      <ResultList title="Weaknesses" items={data.weaknesses} tone="text-red-300" marker="-" />
-      <TagList title="Missing Skills" items={data.missingSkills} />
-      <ResultList title="Improvement Suggestions" items={data.suggestions} tone="text-slate-300" marker="→" />
-      <ReportBlock title="Recruiter Feedback" report={data.recruiterFeedback || data.report} />
+
+      <div className="grid md:grid-cols-2 gap-5">
+        <ResultList title="Top Candidate Strengths" items={data.strengths} tone="text-emerald-400" marker="★" />
+        <ResultList title="Critical Skill Gaps" items={data.weaknesses} tone="text-rose-400" marker="⚠" />
+      </div>
+
+      <div className="p-6 rounded-2xl bg-[#0F172A] border border-white/5">
+        <div className="text-[10px] text-slate-500 uppercase tracking-widest mb-5 font-black">Missing Technical Keywords</div>
+        <div className="flex flex-wrap gap-2.5">
+          {data.missingSkills.map((item) => (
+            <span key={item} className="px-3.5 py-2 rounded-xl text-[11px] font-bold bg-white/5 text-slate-300 border border-white/10 hover:border-cyan-500/50 hover:text-cyan-400 transition-all cursor-default">
+              {item}
+            </span>
+          ))}
+          {data.missingSkills.length === 0 && <span className="text-xs text-slate-600 italic">No missing skills detected based on the target profile.</span>}
+        </div>
+      </div>
+      
+      <ResultList title="Personalized Career Roadmap" items={data.suggestions} tone="text-cyan-400" marker="➜" />
+
+      <ReportBlock title="Executive Recruiter Insight & Feedback" report={data.recruiterFeedback || data.report} />
     </div>
   );
 }
@@ -202,28 +252,14 @@ function ResumeResults({ data }) {
 function ResultList({ title, items = [], tone, marker }) {
   if (!items.length) return null;
   return (
-    <div className="p-3 rounded-lg bg-white/[0.03] border border-white/5">
-      <div className="text-[10px] text-slate-500 uppercase tracking-wider mb-2">{title}</div>
-      {items.map((item, index) => (
-        <div key={`${item}-${index}`} className={`flex items-start gap-2 text-xs mb-1.5 ${tone}`}>
-          <span className="mt-0.5">{marker}</span>
-          <span className="text-slate-300">{item}</span>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function TagList({ title, items = [] }) {
-  if (!items.length) return null;
-  return (
-    <div className="p-3 rounded-lg bg-white/[0.03] border border-white/5">
-      <div className="text-[10px] text-slate-500 uppercase tracking-wider mb-2">{title}</div>
-      <div className="flex flex-wrap gap-1.5">
-        {items.map((item) => (
-          <span key={item} className="px-2 py-1 rounded-md text-[10px] font-medium bg-cyan-500/10 text-cyan-300 border border-cyan-500/20">
-            {item}
-          </span>
+    <div className="p-6 rounded-2xl bg-white/[0.02] border border-white/5 hover:border-white/10 transition-colors">
+      <div className="text-[10px] text-slate-500 uppercase tracking-widest mb-5 font-black">{title}</div>
+      <div className="space-y-4">
+        {items.map((item, index) => (
+          <div key={`${item}-${index}`} className="flex items-start gap-4">
+            <span className={`mt-0.5 text-base leading-none ${tone}`}>{marker}</span>
+            <span className="text-[13px] text-slate-300 leading-relaxed opacity-90">{item}</span>
+          </div>
         ))}
       </div>
     </div>
@@ -239,43 +275,48 @@ function ResultsDisplay({ type, data }) {
 
 function IdleMissionControl({ logs, providerStatus, backendConnected, onOpenSettings }) {
   return (
-    <div className="h-full grid lg:grid-cols-[1fr_280px] gap-4">
-      <div className="rounded-xl bg-black/40 border border-white/5 p-4 flex flex-col">
-        <div className="flex items-center justify-between mb-3">
-          <div className="text-[10px] text-slate-500 uppercase tracking-wider">Live Execution Console</div>
-          <span className="text-[10px] text-cyan-300 font-mono">standby</span>
+    <div className="h-full grid lg:grid-cols-[1fr_280px] gap-6">
+      <div className="rounded-2xl bg-black/60 border border-white/5 p-6 flex flex-col shadow-2xl">
+        <div className="flex items-center justify-between mb-4">
+          <div className="text-[10px] text-slate-500 uppercase tracking-widest font-black">System Ready</div>
+          <div className="flex gap-1.5">
+            <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+            <div className="w-1.5 h-1.5 rounded-full bg-emerald-500/40" />
+          </div>
         </div>
-        <div className="flex-1 min-h-[260px] overflow-y-auto custom-scrollbar">
+        <div className="flex-1 min-h-[300px] overflow-y-auto custom-scrollbar">
           {logs.map((log, index) => (
             <LogLine key={`${log}-${index}`} text={log} isLatest={index === logs.length - 1} />
           ))}
-          <LogLine text="Waiting for an agent card selection..." isLatest />
+          <LogLine text="Select a scenario to initialize the agentic pipeline." isLatest />
         </div>
       </div>
-      <div className="space-y-3">
-        <div className="rounded-xl bg-white/[0.03] border border-white/5 p-4">
-          <div className="text-[10px] text-slate-500 uppercase tracking-wider">Agent Status Bar</div>
-          <div className="flex items-center gap-2 mt-2">
-            <span className={`inline-block w-2 h-2 rounded-full ${backendConnected ? "bg-emerald-400 animate-pulse" : "bg-red-400"}`} />
-            <div className="text-white font-semibold text-sm">{backendConnected ? "Backend Connected" : "Backend Disconnected"}</div>
+      <div className="space-y-4">
+        <div className="rounded-2xl bg-[#121826] border border-white/5 p-5 shadow-xl">
+          <div className="text-[10px] text-slate-500 uppercase tracking-widest mb-4 font-black">Connectivity</div>
+          <div className="flex items-center gap-3">
+            <span className={`inline-block w-2.5 h-2.5 rounded-full ${backendConnected ? "bg-emerald-400 shadow-[0_0_10px_rgba(52,211,153,0.5)]" : "bg-rose-400"}`} />
+            <div className="text-white font-bold text-sm tracking-tight">{backendConnected ? "FastAPI Online" : "Service Offline"}</div>
           </div>
-          <div className="text-xs text-slate-400 mt-1">{providerStatus}</div>
+          <div className="text-[10px] font-mono text-slate-500 mt-2 truncate">{providerStatus}</div>
           <button
             type="button"
             onClick={onOpenSettings}
-            className="mt-4 w-full py-2 rounded-lg border border-cyan-400/20 bg-cyan-400/10 text-cyan-300 text-xs font-semibold hover:bg-cyan-400/15"
+            className="mt-5 w-full py-2.5 rounded-xl border border-cyan-400/20 bg-cyan-400/10 text-cyan-400 text-xs font-black hover:bg-cyan-400/15 transition-all uppercase tracking-widest"
           >
-            AI Providers
+            Manage Keys
           </button>
         </div>
-        <div className="rounded-xl bg-white/[0.03] border border-white/5 p-4">
-          <div className="text-[10px] text-slate-500 uppercase tracking-wider mb-3">Available Pipelines</div>
-          {Object.values(AGENT_CONFIGS).map((config) => (
-            <div key={config.id} className="flex items-center justify-between py-2 border-b border-white/5 last:border-0">
-              <span className="text-xs text-slate-300">{config.title}</span>
-              <span className={`h-1.5 w-1.5 rounded-full ${backendConnected ? "bg-emerald-400 animate-pulse" : "bg-slate-500"}`} />
-            </div>
-          ))}
+        <div className="rounded-2xl bg-[#121826] border border-white/5 p-5 shadow-xl overflow-hidden">
+          <div className="text-[10px] text-slate-500 uppercase tracking-widest mb-4 font-black">Active Nodes</div>
+          <div className="space-y-3">
+            {Object.values(AGENT_CONFIGS).map((config) => (
+              <div key={config.id} className="flex items-center justify-between">
+                <span className="text-xs text-slate-400 font-medium">{config.title.split(' ')[0]} Analyser</span>
+                <span className={`h-1.5 w-1.5 rounded-full ${backendConnected ? "bg-emerald-400" : "bg-slate-700"}`} />
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     </div>
@@ -305,103 +346,127 @@ export default function RightPanel({
 
   return (
     <div className="h-full flex flex-col">
-      <div className="flex flex-wrap items-start justify-between gap-3 mb-4 pb-4 border-b border-white/5">
-        <div>
-          <h3 className="text-white font-semibold text-sm">{config.title}</h3>
-          <div className="flex items-center gap-2 mt-1">
-            <span
-              className={`inline-block w-1.5 h-1.5 rounded-full ${
-                status === "running"
-                  ? "bg-cyan-300 animate-pulse"
-                  : status === "completed"
-                    ? "bg-emerald-400"
-                    : status === "failed"
-                      ? "bg-red-400"
-                      : "bg-slate-500"
-              }`}
-            />
-            <span className="text-[10px] text-slate-500 font-mono uppercase">{status}</span>
+      <div className="flex flex-wrap items-center justify-between gap-4 mb-6 pb-6 border-b border-white/5">
+        <div className="flex items-center gap-4">
+          <div className={`w-10 h-10 rounded-2xl bg-gradient-to-br ${config.gradient} flex items-center justify-center text-xl shadow-lg shadow-black/20`}>
+            {config.id === 'stock' ? '📈' : '📄'}
+          </div>
+          <div>
+            <h3 className="text-white font-black text-base tracking-tight">{config.title}</h3>
+            <div className="flex items-center gap-2 mt-0.5">
+              <span className={`w-1.5 h-1.5 rounded-full ${isRunning ? "bg-cyan-400 animate-pulse shadow-[0_0_8px_rgba(34,211,238,1)]" : isCompleted ? "bg-emerald-400" : isFailed ? "bg-rose-400" : "bg-slate-600"}`} />
+              <span className="text-[10px] text-slate-500 font-black uppercase tracking-widest">{status}</span>
+            </div>
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <div className="flex items-center gap-1.5">
-            <span className={`inline-block w-1.5 h-1.5 rounded-full ${backendConnected ? "bg-emerald-400" : "bg-red-400"}`} />
-            <span className="text-[10px] text-slate-500 font-mono">{backendConnected ? "BE Online" : "BE Offline"}</span>
-          </div>
           <button
             type="button"
             onClick={onOpenSettings}
-            className={`text-[10px] font-semibold rounded-lg px-2.5 py-1.5 border ${
+            className={`text-[10px] font-black rounded-xl px-4 py-2 border transition-all tracking-widest uppercase ${
               providerStatus.includes("Connected")
-                ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-300"
-                : "border-amber-500/20 bg-amber-500/10 text-amber-300"
+                ? "border-emerald-500/20 bg-emerald-500/5 text-emerald-400 hover:bg-emerald-500/10"
+                : "border-amber-500/20 bg-amber-500/5 text-amber-400 hover:bg-amber-500/10"
             }`}
           >
-            {providerStatus.includes("Connected") ? "● AI Connected" : "● API Key Required"}
+            {providerStatus.includes("Connected") ? "AI Online" : "Auth Required"}
           </button>
         </div>
       </div>
 
-      <div className="mb-4">
-        <div className="flex items-center justify-between mb-1.5">
-          <span className="text-[10px] text-slate-500 font-mono">Progress</span>
-          <span className="text-[10px] text-slate-400 font-mono">{progress}%</span>
+      <div className="mb-8">
+        <div className="flex items-center justify-between mb-2.5 px-1">
+          <span className="text-[10px] text-slate-500 font-black uppercase tracking-widest">Pipeline Orchestration</span>
+          <span className="text-[11px] text-white font-black font-mono">{progress}%</span>
         </div>
         <ProgressBar progress={progress} />
       </div>
 
       {lastError && (
-        <div className="mb-4 rounded-xl border border-red-500/20 bg-red-500/10 p-3 text-xs text-red-200">
-          {lastError}
-        </div>
+        <motion.div 
+          initial={{ opacity: 0, scale: 0.95 }}
+          animate={{ opacity: 1, scale: 1 }}
+          className="mb-8 rounded-2xl border border-rose-500/20 bg-rose-500/5 p-5 text-xs text-rose-300 flex items-start gap-3"
+        >
+          <span className="text-lg">🚨</span>
+          <div>
+            <div className="font-bold mb-1 uppercase tracking-wider text-[10px]">Execution Interrupted</div>
+            {lastError}
+          </div>
+        </motion.div>
       )}
 
-      <div className="flex-1 grid xl:grid-cols-[1fr_300px] gap-4 min-h-0">
-        <div className="space-y-4 overflow-y-auto custom-scrollbar pr-1">
-          <div className="rounded-xl bg-black/40 border border-white/5 p-4">
-            <div className="flex items-center justify-between mb-3">
-              <div className="text-[10px] text-slate-500 uppercase tracking-wider font-medium">
-                Live Execution Console
+      <div className="flex-1 grid lg:grid-cols-[1fr_240px] gap-8 min-h-0">
+        <div className="space-y-8 overflow-y-auto custom-scrollbar pr-3 pb-10">
+          {!results && (
+            <div className="rounded-2xl bg-[#0B0F19] border border-white/5 p-6 shadow-2xl">
+              <div className="flex items-center justify-between mb-4">
+                <div className="text-[10px] text-slate-500 uppercase tracking-widest font-black">Live Telemetry</div>
+                <div className="flex gap-1">
+                  <span className={`w-1 h-1 rounded-full ${isRunning ? "bg-cyan-400 animate-ping" : "bg-slate-700"}`} />
+                  <span className="text-[9px] text-slate-600 font-mono">{isRunning ? "POLLING" : "IDLE"}</span>
+                </div>
               </div>
-              <span className="text-[10px] text-cyan-300 font-mono">
-                {isRunning ? "streaming" : isCompleted ? "complete" : isFailed ? "failed" : "ready"}
-              </span>
+              <div className="space-y-1 max-h-[340px] overflow-y-auto custom-scrollbar">
+                {logs.map((log, index) => (
+                  <LogLine key={`${log}-${index}`} text={log} isLatest={index === logs.length - 1 && isRunning} />
+                ))}
+              </div>
             </div>
-            <div className="space-y-0.5 max-h-[260px] overflow-y-auto custom-scrollbar">
-              {logs.map((log, index) => (
-                <LogLine key={`${log}-${index}`} text={log} isLatest={index === logs.length - 1 && isRunning} />
-              ))}
-            </div>
-          </div>
+          )}
 
-          {results ? (
-            <div>
-              <div className="text-[10px] text-slate-500 uppercase tracking-wider font-medium mb-3">
-                Final Results
+          {results && (
+            <motion.div
+              initial={{ opacity: 0, y: 30 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="space-y-8"
+            >
+              <div className="flex items-center gap-4">
+                <div className="h-px flex-1 bg-white/5" />
+                <div className="text-[10px] text-emerald-400 uppercase tracking-[0.2em] font-black whitespace-nowrap px-4 py-1.5 rounded-full border border-emerald-500/20 bg-emerald-500/5">
+                  Analytical Report Ready
+                </div>
+                <div className="h-px flex-1 bg-white/5" />
               </div>
               <ResultsDisplay type={config.resultType} data={results} />
-            </div>
-          ) : (
-            <div className="rounded-xl bg-white/[0.03] border border-white/5 p-4 min-h-[180px]">
-              <div className="text-[10px] text-slate-500 uppercase tracking-wider mb-3">Final Results</div>
-              <div className="text-sm text-slate-400">
-                {isRunning
-                  ? "The final report will appear here as soon as the last agent completes."
-                  : isFailed
-                    ? "Agent execution failed. Check the error message above."
-                    : "Submit the agent input form to start live execution."}
+            </motion.div>
+          )}
+
+          {!results && !isRunning && !isCompleted && !isFailed && (
+            <div className="rounded-3xl bg-white/[0.02] border border-white/5 p-10 flex flex-col items-center justify-center text-center shadow-inner">
+              <div className="w-20 h-20 rounded-full bg-gradient-to-tr from-cyan-500/20 to-blue-500/20 flex items-center justify-center text-4xl mb-6 border border-white/5 shadow-2xl">
+                ⚡
               </div>
+              <h4 className="text-white font-bold mb-2">Initialize Analysis</h4>
+              <p className="text-xs text-slate-500 max-w-xs leading-relaxed">
+                Provide the required inputs to start the multi-agent workflow. The system will coordinate and stream results here.
+              </p>
             </div>
           )}
         </div>
 
-        <div className="space-y-3 overflow-y-auto custom-scrollbar pr-1">
-          <div className="text-[10px] text-slate-500 uppercase tracking-wider font-medium">
-            Agent Pipeline
+        <div className="space-y-5 overflow-y-auto custom-scrollbar pr-1 pb-10">
+          <div className="text-[10px] text-slate-500 uppercase tracking-widest font-black mb-1">
+            Task Graph
           </div>
-          {workflow.map((step, index) => (
-            <WorkflowStep key={step.id} step={step} status={step.status} index={index} />
-          ))}
+          <div className="space-y-3">
+            {workflow.map((step, index) => (
+              <WorkflowStep key={step.id} step={step} status={step.status} index={index} />
+            ))}
+          </div>
+          
+          {isRunning && (
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className="mt-8 p-5 rounded-2xl border border-indigo-500/20 bg-indigo-500/5"
+            >
+              <div className="text-[10px] text-indigo-300 font-black uppercase tracking-widest mb-2">Agent Sync</div>
+              <p className="text-[11px] text-slate-400 leading-relaxed italic opacity-80">
+                Nodes are synchronized. Exchanging data packets between Career Coach and ATS modules...
+              </p>
+            </motion.div>
+          )}
         </div>
       </div>
     </div>

@@ -174,19 +174,24 @@ async def _run_tools_directly(
     resume_text: str,
     role: str,
     middleware: ToolEventMiddleware,
+    job_description: str = "",
 ) -> list[dict]:
     """Fallback: call scoring tools directly if the LLM skipped them."""
     logger.warning("Running tools directly as fallback (LLM did not call them)")
 
     for tool_name, tool_fn, args in [
-        ("score_ats_compatibility", score_ats_compatibility, {"resume_text": resume_text, "role": role}),
-        ("match_skills", match_skills, {"resume_text": resume_text, "role": role}),
+        ("score_ats_compatibility", score_ats_compatibility, {"resume_text": resume_text, "role": role, "job_description": job_description}),
+        ("match_skills", match_skills, {"resume_text": resume_text, "role": role, "job_description": job_description}),
         ("review_grammar", review_grammar, {"resume_text": resume_text}),
     ]:
         middleware.tool_index += 1
         step = RESUME_STEP_MAP.get(tool_name)
         step_id = step[0] if step else "resume_coach"
         step_name = step[1] if step else "Resume Coach"
+
+        if step:
+            await emit(send, "agent_started", f"Running {step_name}...", progress=0,
+                       agent_id=step_id, agent_name=step_name, status="running")
 
         await emit(send, "tool_start", f"[Direct] {tool_name}", progress=0,
                    agent_id=step_id, agent_name=step_name,
@@ -203,6 +208,9 @@ async def _run_tools_directly(
                 "result": json.dumps({"error": str(exc)}),
                 "result_preview": f"[Error] {exc}",
             })
+            if step:
+                await emit(send, "agent_failed", f"{step_name} failed: {exc}", progress=0,
+                           agent_id=step_id, agent_name=step_name, status="failed")
             continue
 
         middleware.tool_history.append({
@@ -217,6 +225,10 @@ async def _run_tools_directly(
                    agent_id=step_id, agent_name=step_name,
                    payload={"tool_index": middleware.tool_index, "tool": tool_name, "direct": True})
 
+        if step:
+            await emit(send, "agent_completed", f"{step_name} complete.", progress=0,
+                       agent_id=step_id, agent_name=step_name, status="completed")
+
     return middleware.tool_history
 
 
@@ -226,6 +238,7 @@ async def run_resume_agent(request: AgentRunRequest, send: SendEvent) -> dict:
     file_data = payload.get("fileData", "")
     role = payload.get("role", "")
     experience = payload.get("experience", "")
+    job_description = payload.get("jobDescription", "")
 
     workflow = describe_langgraph_workflow(["parser", "ats", "skill", "grammar", "coach"])
     await send(AgentEvent(
@@ -282,13 +295,15 @@ async def run_resume_agent(request: AgentRunRequest, send: SendEvent) -> dict:
     # --- STEP 2-5: Agent with scoring tools (no base64) ---
     middleware = ToolEventMiddleware(send, "resume_coach", "Resume Review Agent", tool_step_map=RESUME_STEP_MAP)
 
+    jd_text = f"\n\nTarget Job Description:\n{job_description}" if job_description else ""
     user_query = (
-        f"Review this resume for a {role} position (experience level: {experience}).\n\n"
+        f"Review this resume for a {role} position (experience level: {experience}).{jd_text}\n\n"
         f"Resume text:\n{resume_text}\n\n"
         f"You MUST call score_ats_compatibility, match_skills, and review_grammar with the resume text above. "
+        f"If a job description was provided, pass it to score_ats_compatibility and match_skills. "
         f"Call all three tools before writing your report. "
         f"After gathering all tool results, provide a complete career coaching report "
-        f"based on the structured data from those tools. Keep the report concise.\n\n"
+        f"based on the structured data from those tools. Be extremely thorough in your suggestions.\n\n"
         f"At the end of your report, include a JSON block on its own line:\n"
         f"```json\n"
         f"{{\n"
@@ -296,7 +311,7 @@ async def run_resume_agent(request: AgentRunRequest, send: SendEvent) -> dict:
         f'  "skill_match": <integer 0-100>,\n'
         f'  "strengths": ["skill1", "skill2"],\n'
         f'  "missing_skills": ["skill3", "skill4"],\n'
-        f'  "recommendations": ["rec1", "rec2"]\n'
+        f'  "recommendations": ["detailed suggestion 1", "detailed suggestion 2", "detailed suggestion 3"]\n'
         f"}}\n"
         f"```"
     )
@@ -357,7 +372,7 @@ async def run_resume_agent(request: AgentRunRequest, send: SendEvent) -> dict:
         await emit(send, "log",
                    "Falling back to direct tool execution...",
                    progress=60, agent_id="resume_coach", agent_name="Resume Review Agent")
-        await _run_tools_directly(send, resume_text, role, middleware)
+        await _run_tools_directly(send, resume_text, role, middleware, job_description)
 
     report_data = _extract_resume_result(middleware.tool_history, output_text)
 

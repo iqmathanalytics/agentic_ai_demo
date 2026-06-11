@@ -77,18 +77,18 @@ def parse_resume(file_name: str, file_data: str) -> str:
 
 
 @tool
-def score_ats_compatibility(resume_text: str, role: str) -> str:
+def score_ats_compatibility(resume_text: str, role: str, job_description: str = "") -> str:
     """Score the resume for ATS (Applicant Tracking System) compatibility.
 
     Analyzes structure, keyword density, word count, and section completeness.
-    Provide the raw resume text and the target role.
+    Provide the raw resume text, the target role, and an optional job description.
     """
     word_count = len(re.findall(r"\w+", resume_text))
     has_email = bool(re.search(r"\S+@\S+", resume_text))
     has_phone = bool(re.search(r"\+?\d[\d\s\-\(\)]{7,}", resume_text))
     has_sections = any(
         keyword in resume_text.lower()
-        for keyword in ["experience", "education", "skills", "profile", "summary"]
+        for keyword in ["experience", "education", "skills", "profile", "summary", "projects", "certifications"]
     )
 
     score = 40
@@ -105,7 +105,20 @@ def score_ats_compatibility(resume_text: str, role: str) -> str:
     if word_count > 800:
         score += 5
 
-    score = min(score, 95)
+    # Keyword matching based on JD or Role
+    keywords_to_check = []
+    if job_description:
+        # Simple extraction of capitalized words as potential keywords
+        keywords_to_check = list(set(re.findall(r"\b[A-Z][a-zA-Z0-9+#]{1,}\b", job_description)))
+    
+    if not keywords_to_check:
+        keywords_to_check = ROLE_SKILLS.get(role.lower(), ROLE_SKILLS["ai"])
+
+    matched_keywords = [kw for kw in keywords_to_check if kw.lower() in resume_text.lower()]
+    keyword_score = min(len(matched_keywords) * 2, 10)
+    score += keyword_score
+
+    score = min(score, 98)
 
     issues = []
     if not has_email:
@@ -114,10 +127,12 @@ def score_ats_compatibility(resume_text: str, role: str) -> str:
         issues.append("No phone number found")
     if not has_sections:
         issues.append("Missing standard resume sections (Experience, Education, Skills)")
-    if word_count < 300:
-        issues.append(f"Resume is too short ({word_count} words — aim for 400+)")
+    if word_count < 400:
+        issues.append(f"Resume is quite short ({word_count} words — aim for 400-800)")
     if word_count > 1200:
         issues.append(f"Resume may be too long ({word_count} words — aim for under 1000)")
+    if len(matched_keywords) < 5:
+        issues.append("Low keyword density for the target role/description")
 
     result = AtsScoreOutput(
         atsScore=score,
@@ -131,36 +146,54 @@ def score_ats_compatibility(resume_text: str, role: str) -> str:
 
 
 @tool
-def match_skills(resume_text: str, role: str) -> str:
+def match_skills(resume_text: str, role: str, job_description: str = "") -> str:
     """Match skills in the resume against the target role requirements.
 
     Identifies present skills, missing skills, and computes a skill match percentage.
-    Provide the resume text and the target role.
+    Provide the resume text, the target role, and an optional job description.
     """
-    lowered = f"{role} {resume_text}".lower()
-
-    bucket = "ai"
-    if "data" in lowered and "data science" in lowered:
-        bucket = "data"
-    elif "react" in lowered or "vue" in lowered or "angular" in lowered:
-        bucket = "frontend"
-    elif "api" in lowered or "docker" in lowered or "database" in lowered:
-        bucket = "backend"
-    elif "machine" in lowered or "ai" in lowered or "llm" in lowered:
+    lowered_resume = resume_text.lower()
+    
+    # Identify target skills
+    target_skills = []
+    if job_description:
+        # Extract potential skills from JD (common tech keywords)
+        tech_keywords = {
+            "Python", "Java", "JavaScript", "TypeScript", "React", "Angular", "Vue", "Node.js",
+            "Express", "FastAPI", "Flask", "Django", "SQL", "NoSQL", "MongoDB", "PostgreSQL",
+            "Docker", "Kubernetes", "AWS", "Azure", "GCP", "CI/CD", "Git", "Machine Learning",
+            "Deep Learning", "NLP", "LLM", "RAG", "LangChain", "PyTorch", "TensorFlow", "Pandas",
+            "NumPy", "Scikit-learn", "Tableau", "PowerBI", "Agile", "Scrum", "REST API", "GraphQL"
+        }
+        target_skills = [kw for kw in tech_keywords if kw.lower() in job_description.lower()]
+    
+    if not target_skills:
+        # Fallback to role-based buckets
         bucket = "ai"
+        lowered_input = f"{role} {job_description}".lower()
+        if "data" in lowered_input:
+            bucket = "data"
+        elif any(k in lowered_input for k in ["frontend", "react", "ui"]):
+            bucket = "frontend"
+        elif any(k in lowered_input for k in ["backend", "api", "server"]):
+            bucket = "backend"
+        target_skills = ROLE_SKILLS.get(bucket, ROLE_SKILLS["ai"])
 
-    skills = ROLE_SKILLS[bucket]
-    present = [skill for skill in skills if skill.lower() in resume_text.lower()]
-    missing = [skill for skill in skills if skill not in present]
-    match_pct = round((len(present) / len(skills)) * 100)
+    present = [skill for skill in target_skills if skill.lower() in lowered_resume]
+    missing = [skill for skill in target_skills if skill not in present]
+    
+    if not target_skills:
+        match_pct = 0
+    else:
+        match_pct = round((len(present) / len(target_skills)) * 100)
 
     result = SkillMatchOutput(
         skillMatch=match_pct,
         presentSkills=present,
         missingSkills=missing,
-        detectedRole=bucket,
+        detectedRole=role,
     )
-    logger.info("match_skills: %s match=%s%% present=%s", bucket, result.skillMatch, result.presentSkills)
+    logger.info("match_skills: match=%s%% present=%d missing=%d", result.skillMatch, len(present), len(missing))
     return result.model_dump_json()
 
 

@@ -414,6 +414,7 @@ function ResumeModal({ isOpen, onClose, onSubmit }) {
     fileName: "",
     role: "",
     experience: "Fresher",
+    jobDescription: "",
   });
   const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef(null);
@@ -439,7 +440,7 @@ function ResumeModal({ isOpen, onClose, onSubmit }) {
     e.preventDefault();
     if (!form.file || !form.role) return;
     onSubmit(form);
-    setForm({ file: null, fileName: "", role: "", experience: "Fresher" });
+    setForm({ file: null, fileName: "", role: "", experience: "Fresher", jobDescription: "" });
   };
 
   return (
@@ -491,6 +492,17 @@ function ResumeModal({ isOpen, onClose, onSubmit }) {
             placeholder="e.g. AI Engineer"
             className="w-full px-3 py-2.5 rounded-lg bg-white/5 border border-white/10 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/20 transition-all"
             required
+          />
+        </div>
+
+        <div>
+          <label className="block text-slate-300 text-xs font-medium mb-1.5">Job Description (Optional)</label>
+          <textarea
+            value={form.jobDescription}
+            onChange={(e) => setForm({ ...form, jobDescription: e.target.value })}
+            placeholder="Paste the job description here for a more precise analysis..."
+            rows={4}
+            className="w-full px-3 py-2.5 rounded-lg bg-white/5 border border-white/10 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/20 transition-all resize-none custom-scrollbar"
           />
         </div>
 
