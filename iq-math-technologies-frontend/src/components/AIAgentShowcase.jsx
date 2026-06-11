@@ -5,7 +5,7 @@ import AgentCards from "./AgentCards";
 import RightPanel from "./RightPanel";
 import { Modals, PROVIDER_MODELS } from "./Modals";
 
-const API_BASE = import.meta.env.VITE_AGENT_API_URL || "http://localhost:8000";
+const API_BASE = import.meta.env.VITE_AGENT_API_URL;
 const WS_BASE = API_BASE.replace(/^http/, "ws");
 
 function loadCredentials() {
@@ -152,7 +152,7 @@ export default function AIAgentsShowcase() {
       socket.onmessage = (message) => {
         const event = JSON.parse(message.data);
         if (event.message) appendLog(event.message);
-        if (typeof event.progress === "number") setProgress(event.progress);
+        if (typeof event.progress === "number" && event.progress > 0) setProgress(event.progress);
         if (event.type === "agent_started" || event.type === "agent_running" || event.type === "agent_completed" || event.type === "agent_failed") {
           updateStep(event);
         }

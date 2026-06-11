@@ -32,8 +32,11 @@ def _fetch_rich_data(symbol: str, exchange: str) -> dict | None:
         history = yf_ticker.history(period="6mo", interval="1d")
         info = yf_ticker.info or {}
         if not history.empty:
-            closes = [float(v) for v in history["Close"].tail(60).tolist()]
-            return {"history": history, "closes": closes, "info": info, "ticker": ticker, "source": "yfinance"}
+            # Drop rows where Close price is NaN (e.g. weekends/incomplete days)
+            history = history.dropna(subset=["Close"])
+            if not history.empty:
+                closes = [float(v) for v in history["Close"].tail(60).tolist()]
+                return {"history": history, "closes": closes, "info": info, "ticker": ticker, "source": "yfinance"}
         logger.warning("yfinance: empty history for %s", ticker)
     except Exception as exc:
         logger.warning("yfinance failed for %s: %s", ticker, exc)
@@ -216,11 +219,29 @@ def get_company_news(symbol: str, exchange: str = "NSE") -> str:
 
         articles = []
         for item in news_raw[:10]:
+            # Support new nested format where info is under 'content' key
+            content = item.get("content", item) if isinstance(item.get("content"), dict) else item
+            
+            title = content.get("title", "")
+            
+            provider_data = content.get("provider", {})
+            source = provider_data.get("displayName", provider_data.get("publisher", content.get("publisher", ""))) if isinstance(provider_data, dict) else content.get("publisher", "")
+            
+            date_str = content.get("pubDate", "")
+            if date_str:
+                date = date_str
+            else:
+                pub_time = content.get("providerPublishTime")
+                date = datetime.fromtimestamp(pub_time).isoformat() if pub_time else None
+                
+            url_data = content.get("canonicalUrl", {})
+            link = url_data.get("url", content.get("link", "")) if isinstance(url_data, dict) else content.get("link", "")
+            
             articles.append({
-                "title": item.get("title", ""),
-                "source": item.get("publisher", ""),
-                "date": datetime.fromtimestamp(item.get("providerPublishTime", 0)).isoformat() if item.get("providerPublishTime") else None,
-                "link": item.get("link", ""),
+                "title": title,
+                "source": source,
+                "date": date,
+                "link": link,
             })
         result = {"available": True, "symbol": symbol, "articles": articles}
         logger.info("get_company_news: %d articles for %s", len(articles), ticker)

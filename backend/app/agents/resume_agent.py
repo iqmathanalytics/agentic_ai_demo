@@ -342,6 +342,10 @@ async def run_resume_agent(request: AgentRunRequest, send: SendEvent) -> dict:
     if not output_text and last_error:
         raise Exception(last_error)
 
+    # Emit running status for Career Coach Agent
+    await emit(send, "agent_started", "Synthesizing career coaching insights...", 80,
+               agent_id="coach", agent_name="Career Coach Agent", status="running")
+
     # --- Log raw LLM response before parsing ---
     logger.info("=== RAW LLM RESPONSE (first 2000 chars) ===")
     logger.info(output_text[:2000])
@@ -368,6 +372,10 @@ async def run_resume_agent(request: AgentRunRequest, send: SendEvent) -> dict:
         )
 
     report_data["toolCalls"] = middleware.tool_history
+
+    # Emit completed status for Career Coach Agent
+    await emit(send, "agent_completed", "Career coaching report complete.", 95,
+               agent_id="coach", agent_name="Career Coach Agent", status="completed")
 
     await send(AgentEvent(
         type="final",

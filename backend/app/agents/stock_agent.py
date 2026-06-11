@@ -31,6 +31,15 @@ STOCK_TOOLS = [
     calculate_risk_metrics,
 ]
 
+STOCK_STEP_MAP = {
+    "get_stock_price_data": ("technical", "Technical Analysis Agent"),
+    "get_company_profile": ("collector", "Data Collector Agent"),
+    "get_fundamentals": ("collector", "Data Collector Agent"),
+    "get_company_news": ("collector", "Data Collector Agent"),
+    "analyze_sentiment": ("sentiment", "Sentiment Analysis Agent"),
+    "calculate_risk_metrics": ("risk", "Risk Assessment Agent"),
+}
+
 
 def _extract_stock_result(tool_history: list[dict], symbol: str, exchange: str, name: str, report_text: str) -> dict:
     """Reconstruct the structured stock data dict from tool call results."""
@@ -91,7 +100,18 @@ def _extract_stock_result(tool_history: list[dict], symbol: str, exchange: str, 
     logger.info("Extracted stock result: price=%s change=%s sma20=%s sma50=%s vol=%s mcap=%s",
                 result["currentPrice"], result["change"], result["sma20"],
                 result["sma50"], result["volume"], result["marketCap"])
-    return result
+                
+    import math
+    def _sanitize_nan(val):
+        if isinstance(val, float) and math.isnan(val):
+            return None
+        if isinstance(val, dict):
+            return {k: _sanitize_nan(v) for k, v in val.items()}
+        if isinstance(val, list):
+            return [_sanitize_nan(v) for v in val]
+        return val
+        
+    return _sanitize_nan(result)
 
 
 async def run_stock_agent(request: AgentRunRequest, send: SendEvent) -> dict:
@@ -109,7 +129,7 @@ async def run_stock_agent(request: AgentRunRequest, send: SendEvent) -> dict:
     ))
 
     llm = create_chat_model(request.credentials)
-    middleware = ToolEventMiddleware(send, "stock_analyst", "Stock Analysis Agent")
+    middleware = ToolEventMiddleware(send, "stock_analyst", "Stock Analysis Agent", tool_step_map=STOCK_STEP_MAP)
 
     agent = create_agent(
         model=llm,
@@ -139,6 +159,10 @@ async def run_stock_agent(request: AgentRunRequest, send: SendEvent) -> dict:
             if hasattr(msg, "content") and msg.content and hasattr(msg, "type") and msg.type == "ai":
                 output_text = msg.content
                 break
+
+        # Emit running status for Investment Insight Agent
+        await emit(send, "agent_started", "Generating investment insights...", 80,
+                   agent_id="insight", agent_name="Investment Insight Agent", status="running")
     except Exception as exc:
         logger.error("Stock agent execution failed: %s", exc, exc_info=True)
         report_data = _extract_stock_result(middleware.tool_history, symbol, exchange, name, "")
@@ -162,6 +186,10 @@ async def run_stock_agent(request: AgentRunRequest, send: SendEvent) -> dict:
                 report_data["currentPrice"], report_data["change"], report_data["sma20"],
                 report_data["sma50"], report_data["volume"], report_data["marketCap"],
                 len(report_data["chartData"]))
+
+    # Emit completed status for Investment Insight Agent
+    await emit(send, "agent_completed", "Investment report generated.", 95,
+               agent_id="insight", agent_name="Investment Insight Agent", status="completed")
 
     await send(AgentEvent(
         type="final",
