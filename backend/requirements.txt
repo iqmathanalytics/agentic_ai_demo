@@ -19,3 +19,4 @@ firecrawl-py
 pandas
 numpy
 scipy
+langchain_community
