@@ -19,7 +19,11 @@ from app.tools.stock_tools import (
     calculate_fundamentals,
     calculate_valuation,
     calculate_risk,
-    get_analyst_ratings
+    get_analyst_ratings,
+    generate_trading_factors,
+    get_investment_verdict,
+    discover_peer_companies,
+    get_comprehensive_analysis,
 )
 
 logger = logging.getLogger(__name__)
@@ -45,6 +49,9 @@ class EquityResearchState(TypedDict):
     valuation_data: dict
     risk_data: dict
     analyst_data: dict
+
+    # Quantitative analysis (Computed)
+    quantitative_data: dict
 
     # Final output
     final_report: str
@@ -209,6 +216,18 @@ Use the resolve_ticker tool."""
             await _emit_agent_end("analyst", "Analyst Consensus Agent", 85, success=False)
             return {"analyst_data": {}}
 
+    async def quantitative_node(state: EquityResearchState):
+        if not state.get("ticker_resolved"): return {}
+        await _emit_agent_start("quantitative", "Quantitative Analysis Agent", 86)
+        try:
+            data = get_comprehensive_analysis.invoke({"symbol": state["symbol"], "exchange": state["exchange"]})
+            await _emit_agent_end("quantitative", "Quantitative Analysis Agent", 90)
+            return {"quantitative_data": data}
+        except Exception as e:
+            logger.error(f"Quantitative node failed: {e}")
+            await _emit_agent_end("quantitative", "Quantitative Analysis Agent", 90, success=False)
+            return {"quantitative_data": {}}
+
     async def decision_node(state: EquityResearchState):
         await _emit_agent_start("decision", "Investment Decision Agent", 90)
 
@@ -232,6 +251,12 @@ Use the resolve_ticker tool."""
         val = state.get('valuation_data', {}) or {}
         risk = state.get('risk_data', {}) or {}
         analyst = state.get('analyst_data', {}) or {}
+        quant = state.get('quantitative_data', {}) or {}
+
+        def _fmt_quant(d):
+            if isinstance(d, dict):
+                return json.dumps(d, indent=2, default=str)
+            return str(d)
 
         prompt = f"""You are the Investment Decision Agent.
 Compile a comprehensive equity research report using the gathered data.
@@ -257,7 +282,28 @@ Risk Analysis:
 Analyst Consensus:
 {json.dumps(analyst, indent=2)}
 
-Generate a complete structured equity research report with all required fields."""
+Quantitative Analysis (Pre-computed):
+{_fmt_quant(quant.get("fundamentalScore", {}))}
+
+Fair Value Estimate:
+{_fmt_quant(quant.get("fairValue", {}))}
+
+Bullish Factors:
+{json.dumps(quant.get("bullishFactors", []), indent=2)}
+
+Bearish Factors:
+{json.dumps(quant.get("bearishFactors", []), indent=2)}
+
+Pre-computed Recommendation:
+{_fmt_quant(quant.get("recommendation", {}))}
+
+Peer Companies:
+{json.dumps(quant.get("peers", []), indent=2)}
+
+Generate a complete structured equity research report with all required fields.
+Use the pre-computed recommendation as the primary basis for the recommendation field.
+Use the pre-computed bullish and bearish factors as the primary basis for those fields.
+Set the confidence score from the pre-computed recommendation."""
 
         try:
             structured_llm = llm.with_structured_output(EquityReport)
@@ -310,6 +356,7 @@ Generate a complete structured equity research report with all required fields."
     graph.add_node("valuation_node", valuation_node)
     graph.add_node("risk_node", risk_node)
     graph.add_node("analyst_node", analyst_node)
+    graph.add_node("quantitative_node", quantitative_node)
     graph.add_node("decision_node", decision_node)
 
     graph.set_entry_point("ticker_resolution")
@@ -320,14 +367,15 @@ Generate a complete structured equity research report with all required fields."
     graph.add_edge("fundamental_node", "valuation_node")
     graph.add_edge("valuation_node", "risk_node")
     graph.add_edge("risk_node", "analyst_node")
-    graph.add_edge("analyst_node", "decision_node")
+    graph.add_edge("analyst_node", "quantitative_node")
+    graph.add_edge("quantitative_node", "decision_node")
     graph.add_edge("decision_node", END)
 
     app = graph.compile()
 
     nodes_list = ["Ticker Resolution Agent", "Company Intelligence Agent", "News Research Agent", "Market Data Agent",
                   "Fundamental Analysis Agent", "Valuation Agent", "Risk Analysis Agent",
-                  "Analyst Consensus Agent", "Investment Decision Agent"]
+                  "Analyst Consensus Agent", "Quantitative Analysis Agent", "Investment Decision Agent"]
 
     await send(AgentEvent(
         type="run_started",
@@ -349,6 +397,7 @@ Generate a complete structured equity research report with all required fields."
             "valuation_data": {},
             "risk_data": {},
             "analyst_data": {},
+            "quantitative_data": {},
             "final_report": "",
             "structured_data": None,
             "ticker_resolved": False,

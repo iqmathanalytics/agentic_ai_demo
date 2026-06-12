@@ -4,6 +4,17 @@ import os
 
 from langchain_core.tools import tool
 from .search_tools import perform_search
+from .quantitative_tools import (
+    calculate_fundamental_score as _calc_score,
+    revenue_analysis as _rev_analysis,
+    calculate_fair_value as _calc_fv,
+    generate_bullish_factors as _gen_bull,
+    generate_bearish_factors as _gen_bear,
+    investment_recommendation as _inv_rec,
+    get_analyst_consensus as _analyst_consensus,
+    discover_peers as _discover_peers,
+    build_analysis_context as _build_context,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -163,7 +174,7 @@ def calculate_fundamentals(symbol: str, exchange: str) -> str:
         },
         "Debt to Equity": {
             "Value": info.get("debtToEquity"),
-            "Classification": classify_inv(info.get("debtToEquity", 100), 50, 150) # yfinance often returns this as percentage
+            "Classification": classify_inv(info.get("debtToEquity", 100), 50, 150)
         },
         "Current Ratio": {
             "Value": info.get("currentRatio"),
@@ -174,6 +185,10 @@ def calculate_fundamentals(symbol: str, exchange: str) -> str:
             "Classification": "Strong" if info.get("freeCashflow", 0) > 0 else "Weak"
         }
     }
+    score = _calc_score(info)
+    rev = _rev_analysis(info, ticker)
+    fundamentals["_quantScore"] = score
+    fundamentals["_revenueAnalysis"] = rev
     return fundamentals
 
 @tool
@@ -207,6 +222,8 @@ def calculate_valuation(symbol: str, exchange: str) -> str:
         "Assessment": assessment,
         "Explanation": f"Based on a Trailing PE of {pe} and Forward PE of {forward_pe}, the stock appears {assessment} relative to typical market averages."
     }
+    fv = _calc_fv(info)
+    result["_fairValue"] = fv
     return result
 
 @tool
@@ -268,5 +285,80 @@ def get_analyst_ratings(symbol: str, exchange: str) -> str:
         "Target Low Price": info.get("targetLowPrice"),
         "Number of Analyst Opinions": info.get("numberOfAnalystOpinions")
     }
+    enhanced = _analyst_consensus(ticker)
+    if enhanced.get("Analyst Counts"):
+        result["_analystCounts"] = enhanced["Analyst Counts"]
+        result["_buyRatio"] = enhanced.get("Buy Ratio")
     return result
+
+
+@tool
+def generate_trading_factors(symbol: str, exchange: str) -> str:
+    """Generates data-driven bullish and bearish investment factors based on fundamental analysis.
+    Returns a dict with 'bullishFactors' and 'bearishFactors' lists.
+    """
+    ticker = _map_ticker(symbol, exchange)
+    logger.info(f"Generating trading factors for {ticker}")
+
+    data = _get_yfinance_data(ticker)
+    if not data or not data.get("info"):
+        return {"error": "Factor generation unavailable."}
+
+    info = data["info"]
+    score = _calc_score(info)
+    fv = _calc_fv(info)
+
+    bull = _gen_bull(info, score, fv)
+    bear = _gen_bear(info, score, fv)
+
+    return {"bullishFactors": bull, "bearishFactors": bear}
+
+
+@tool
+def get_investment_verdict(symbol: str, exchange: str) -> str:
+    """Calculates a rule-based investment recommendation (BUY/HOLD/SELL) with confidence score and reasoning.
+    Uses fundamental score, fair value upside, and analyst consensus.
+    """
+    ticker = _map_ticker(symbol, exchange)
+    logger.info(f"Computing investment verdict for {ticker}")
+
+    data = _get_yfinance_data(ticker)
+    if not data or not data.get("info"):
+        return {"error": "Verdict unavailable."}
+
+    info = data["info"]
+    score = _calc_score(info)
+    fv = _calc_fv(info)
+    analyst = _analyst_consensus(ticker)
+
+    rec = _inv_rec(score, fv, analyst)
+    return rec
+
+
+@tool
+def discover_peer_companies(symbol: str, exchange: str) -> str:
+    """Discovers peer companies in the same sector/industry, ranked by market cap proximity.
+    Returns a list of peer company details including symbol, name, PE ratio, and growth.
+    """
+    ticker = _map_ticker(symbol, exchange)
+    logger.info(f"Discovering peers for {ticker}")
+
+    data = _get_yfinance_data(ticker)
+    if not data or not data.get("info"):
+        return {"error": "Peer discovery unavailable."}
+
+    info = data["info"]
+    peers = _discover_peers(info)
+    return {"peers": peers, "count": len(peers)}
+
+
+@tool
+def get_comprehensive_analysis(symbol: str, exchange: str) -> str:
+    """Runs the full quantitative analysis pipeline and returns a comprehensive context dict.
+    Includes: fundamental score, fair value, bullish/bearish factors, analyst consensus,
+    investment verdict, peer comparison, and revenue analysis.
+    This is the primary tool for the Investment Decision Agent.
+    """
+    context = _build_context(symbol, exchange)
+    return context
 
