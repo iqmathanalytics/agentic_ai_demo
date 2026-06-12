@@ -408,6 +408,45 @@ function StockModal({ isOpen, onClose, onSubmit }) {
   );
 }
 
+function WebsiteAuditModal({ isOpen, onClose, onSubmit }) {
+  const [url, setUrl] = useState("");
+  const config = AGENT_CONFIGS.website_audit;
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if (!url.trim()) return;
+    onSubmit({ url: url.trim() });
+    setUrl("");
+  };
+
+  return (
+    <ModalWrapper isOpen={isOpen} onClose={onClose} title={config.title} gradient={config.gradient}>
+      <form onSubmit={handleSubmit} className="space-y-5">
+        <p className="text-sm text-slate-400 leading-relaxed">
+          Enter any public URL to receive a comprehensive SEO, performance, accessibility, and best practices audit with scored reports.
+        </p>
+        <div>
+          <label className="block text-slate-300 text-xs font-medium mb-1.5">Website URL</label>
+          <input
+            type="url"
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            placeholder="https://example.com"
+            className="w-full px-3 py-2.5 rounded-lg bg-white/5 border border-white/10 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/20 transition-all"
+            required
+          />
+        </div>
+        <button
+          type="submit"
+          className="w-full py-3 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 text-white font-semibold text-sm hover:shadow-lg hover:shadow-amber-500/20 transition-all duration-300"
+        >
+          Audit Website
+        </button>
+      </form>
+    </ModalWrapper>
+  );
+}
+
 function ResumeModal({ isOpen, onClose, onSubmit }) {
   const [form, setForm] = useState({
     file: null,
@@ -547,6 +586,7 @@ export function Modals({
   onChangeProvider,
   onStockSubmit,
   onResumeSubmit,
+  onWebsiteAuditSubmit,
 }) {
   return (
     <>
@@ -564,6 +604,7 @@ export function Modals({
         onChangeProvider={onChangeProvider}
       />
       <StockModal isOpen={activeModal === "stock"} onClose={onClose} onSubmit={onStockSubmit} />
+      <WebsiteAuditModal isOpen={activeModal === "website_audit"} onClose={onClose} onSubmit={onWebsiteAuditSubmit} />
       <ResumeModal isOpen={activeModal === "resume"} onClose={onClose} onSubmit={onResumeSubmit} />
     </>
   );

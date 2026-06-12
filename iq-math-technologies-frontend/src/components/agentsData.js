@@ -1,4 +1,37 @@
 export const AGENT_CONFIGS = {
+  website_audit: {
+    id: "website_audit",
+    title: "Website SEO & Accessibility Audit",
+    description:
+      "Analyzes any public URL for on-page SEO, performance, accessibility, and best practices with scored reports and actionable recommendations.",
+    tags: ["SEO Audit", "Performance", "Accessibility", "Best Practices"],
+    status: "Live",
+    gradient: "from-amber-500 to-orange-500",
+    workflow: [
+      { id: "validator", name: "URL Validator", icon: "🔗", status: "idle" },
+      { id: "fetcher", name: "Fetcher Agent", icon: "🌐", status: "idle" },
+      { id: "preview", name: "Screenshot Agent", icon: "📸", status: "idle" },
+      { id: "parser", name: "Parser Agent", icon: "🔍", status: "idle" },
+      { id: "seo", name: "SEO Analyst", icon: "📈", status: "idle" },
+      { id: "perf", name: "Performance Analyst", icon: "⚡", status: "idle" },
+      { id: "a11y", name: "Accessibility Analyst", icon: "♿", status: "idle" },
+      { id: "bestp", name: "Best Practices Analyst", icon: "✅", status: "idle" },
+      { id: "reportgen", name: "Report Generator", icon: "📋", status: "idle" },
+    ],
+    logs: [
+      "Validating URL format...",
+      "Fetching website content...",
+      "Capturing desktop preview...",
+      "Parsing HTML and extracting signals...",
+      "Analyzing on-page SEO...",
+      "Evaluating performance heuristics...",
+      "Checking accessibility compliance...",
+      "Reviewing best practices...",
+      "Generating audit report...",
+      "Audit complete.",
+    ],
+    resultType: "website_audit",
+  },
   stock: {
     id: "stock",
     title: "Multi-Agent Equity Research",
@@ -93,6 +126,29 @@ export function generateMockResults(type) {
         signals: Math.random() * 100,
         trend: 30 + Math.sin(i * 0.8) * 25 + Math.random() * 10,
       })),
+    };
+  }
+  if (type === "website_audit") {
+    return {
+      url: "https://example.com",
+      preview: null,
+      scores: {
+        on_page_seo: { score: 72, label: "Good" },
+        performance: { score: 65, label: "Good" },
+        accessibility: { score: 45, label: "Needs Work" },
+        seo: { score: 68, label: "Good" },
+        best_practices: { score: 78, label: "Good" },
+      },
+      issues: [
+        "Meta description is missing.",
+        "3 images missing alt text.",
+        "No canonical URL tag.",
+      ],
+      suggestions: [
+        "Add a meta description between 120-160 characters.",
+        "Add descriptive alt text to all images.",
+        "Add a canonical URL tag to prevent duplicate content.",
+      ],
     };
   }
   if (type === "resume") {

@@ -121,10 +121,21 @@ function ReportBlock({ title, report }) {
   );
 }
 
-function formatValue(value, fmt) {
-  if (value == null || (typeof value === "number" && Number.isNaN(value))) {
-    return "Data Not Available";
+function hasValue(value) {
+  if (value === null || value === undefined) return false;
+  if (typeof value === "string") {
+    if (["", "N/A", "NA", "null", "undefined", "Data Not Available"].includes(value)) return false;
+    return true;
   }
+  if (typeof value === "number") {
+    if (Number.isNaN(value)) return false;
+    return true;
+  }
+  return true;
+}
+
+function formatValue(value, fmt) {
+  if (!hasValue(value)) return null;
   if (typeof value === "number") {
     if (fmt === "currency") {
       return "$" + (Number.isInteger(value) ? value.toLocaleString() : value.toFixed(2));
@@ -150,96 +161,253 @@ function MetricCard({ label, value, className, labelColor }) {
 }
 
 function StockResults({ data }) {
-  console.log("FULL RESPONSE", data);
-  console.log("MARKET METRICS", data.marketMetrics);
-  console.log("RECOMMENDATION", data.recommendation);
-  console.log("ANALYST RATINGS", data.analystRatings);
-  console.log("VALUATION", data.valuation);
-  console.log("FUNDAMENTALS", data.fundamentals);
+  const valuation = data.valuation || {};
+  const fundamentals = data.fundamentals || {};
+  const analystRatings = data.analystRatings || {};
+  const recommendation = data.recommendation || {};
+  const riskAnalysis = data.riskAnalysis || {};
+  const bullishFactors = data.bullishFactors || [];
+  const bearishFactors = data.bearishFactors || [];
+  const latestNews = data.latestNews || [];
+  const chartData = data.chartData || [];
 
-  if (!data.companyOverview) {
-    return (
-      <div className="space-y-8">
-        <ReportBlock title="Comprehensive Equity Research Report" report={data.report} />
-      </div>
-    );
+  const currentPrice = valuation["Current Price"];
+  const marketCap = valuation["Market Cap"];
+  const targetPrice = analystRatings["Target Mean Price"];
+  const consensusRating = analystRatings["Consensus Rating"];
+  const recAction = recommendation.action || recommendation.rating;
+  const recConfidence = recommendation.confidence;
+
+  const metricCards = [];
+
+  if (hasValue(currentPrice) && currentPrice > 0) {
+    metricCards.push({
+      key: "price",
+      label: "Current Price",
+      value: formatValue(currentPrice, "currency"),
+      className: "bg-gradient-to-br from-cyan-600/10 via-blue-600/5 to-transparent border-cyan-500/20",
+      labelColor: "text-cyan-400",
+    });
   }
 
-  const valuationFields = [
-    { label: "Trailing PE", key: "trailingPE" },
-    { label: "Forward PE", key: "forwardPE" },
-    { label: "EV/EBITDA", key: "evToEBITDA" },
-    { label: "Assessment", key: "assessment" },
-  ];
+  if (hasValue(marketCap)) {
+    metricCards.push({
+      key: "cap",
+      label: "Market Cap",
+      value: formatValue(marketCap),
+      className: "bg-gradient-to-br from-sky-600/10 via-teal-600/5 to-transparent border-sky-500/20",
+      labelColor: "text-sky-400",
+    });
+  }
 
-  const fundamentalFields = [
-    { label: "Revenue Growth", key: "revenueGrowth" },
-    { label: "Gross Margin", key: "grossMargin" },
-    { label: "ROE", key: "roe" },
-    { label: "Debt/Equity", key: "debtToEquity" },
+  if (hasValue(recAction)) {
+    metricCards.push({
+      key: "rec",
+      label: "Recommendation",
+      value: (
+        <>
+          <div className="text-3xl font-black text-white tracking-tighter">{recAction}</div>
+          {hasValue(recConfidence) && <div className="text-[11px] text-slate-500 mt-2">Confidence: {recConfidence}%</div>}
+        </>
+      ),
+      className: "bg-gradient-to-br from-emerald-600/10 via-teal-600/5 to-transparent border-emerald-500/20",
+      labelColor: "text-emerald-400",
+    });
+  }
+
+  if (hasValue(targetPrice)) {
+    metricCards.push({
+      key: "target",
+      label: "Target Price",
+      value: (
+        <>
+          <div className="text-3xl font-black text-white tracking-tighter">{formatValue(targetPrice, "currency")}</div>
+          {hasValue(consensusRating) && <div className="text-[11px] text-slate-500 mt-2">Consensus: {consensusRating}</div>}
+        </>
+      ),
+      className: "bg-gradient-to-br from-indigo-600/10 via-purple-600/5 to-transparent border-indigo-500/20",
+      labelColor: "text-indigo-400",
+    });
+  }
+
+  const valuationFieldDefs = [
+    { label: "Trailing PE", key: "Trailing PE" },
+    { label: "Forward PE", key: "Forward PE" },
+    { label: "PEG Ratio", key: "PEG Ratio" },
+    { label: "EV/EBITDA", key: "EV/EBITDA" },
+    { label: "Assessment", key: "Assessment" },
   ];
+  const availableValuationFields = valuationFieldDefs
+    .map((f) => ({ ...f, value: valuation[f.key] }))
+    .filter((f) => hasValue(f.value));
+
+  const fundamentalKeys = [
+    "Revenue Growth", "Earnings Growth", "Gross Margin", "Operating Margin",
+    "Net Margin", "ROE", "ROA", "Debt to Equity", "Current Ratio", "Free Cash Flow",
+  ];
+  const availableFundamentalFields = fundamentalKeys
+    .map((key) => ({ key, data: fundamentals[key] }))
+    .filter((f) => f.data && hasValue(f.data.Value));
+
+  const analystFieldDefs = [
+    { label: "Consensus Rating", key: "Consensus Rating" },
+    { label: "Number of Analysts", key: "Number of Analyst Opinions" },
+    { label: "Target High", key: "Target High Price", fmt: "currency" },
+    { label: "Target Low", key: "Target Low Price", fmt: "currency" },
+  ];
+  const availableAnalystFields = analystFieldDefs
+    .map((f) => ({ ...f, value: analystRatings[f.key] }))
+    .filter((f) => hasValue(f.value));
+
+  const riskFieldDefs = [
+    { label: "Volatility", key: "Annual Volatility", suffix: "%" },
+    { label: "Beta", key: "Beta" },
+    { label: "Max Drawdown", key: "Maximum Drawdown", suffix: "%" },
+    { label: "Risk Score", key: "Classification" },
+  ];
+  const availableRiskFields = riskFieldDefs
+    .map((f) => ({ ...f, value: riskAnalysis[f.key] }))
+    .filter((f) => hasValue(f.value));
 
   return (
     <div className="space-y-8">
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-5">
-        <MetricCard
-          label="Current Price"
-          value={<div className="text-3xl font-black text-white tracking-tighter">{formatValue(data.valuation?.["Current Price"], "currency")}</div>}
-          className="bg-gradient-to-br from-cyan-600/10 via-blue-600/5 to-transparent border-cyan-500/20"
-          labelColor="text-cyan-400"
-        />
-        <MetricCard
-          label="Market Cap"
-          value={<div className="text-3xl font-black text-white tracking-tighter">{formatValue(data.valuation?.["Market Cap"])}</div>}
-          className="bg-gradient-to-br from-sky-600/10 via-teal-600/5 to-transparent border-sky-500/20"
-          labelColor="text-sky-400"
-        />
-        <MetricCard
-          label="Recommendation"
-          value={<><div className="text-3xl font-black text-white tracking-tighter">{data.recommendation?.rating ?? "N/A"}</div><div className="text-[11px] text-slate-500 mt-2">Confidence: {data.recommendation?.confidence ?? "N/A"}</div></>}
-          className="bg-gradient-to-br from-emerald-600/10 via-teal-600/5 to-transparent border-emerald-500/20"
-          labelColor="text-emerald-400"
-        />
-        <MetricCard
-          label="Target Price"
-          value={<><div className="text-3xl font-black text-white tracking-tighter">{formatValue(data.analystRatings?.targetMeanPrice, "currency")}</div><div className="text-[11px] text-slate-500 mt-2">Consensus: {data.analystRatings?.consensusRating ?? "N/A"}</div></>}
-          className="bg-gradient-to-br from-indigo-600/10 via-purple-600/5 to-transparent border-indigo-500/20"
-          labelColor="text-indigo-400"
-        />
-      </div>
-
-      <div className="rounded-2xl bg-[#0B0F19] border border-white/5 p-6">
-        <div className="text-[10px] text-slate-500 uppercase tracking-widest mb-5 font-black">Valuation Metrics</div>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-          {valuationFields.map((f) => (
-            <div key={f.key}>
-              <div className="text-[10px] text-slate-500 mb-1">{f.label}</div>
-              <div className="text-sm font-bold text-white">{formatValue(data.valuation?.[f.key])}</div>
-            </div>
+      {metricCards.length > 0 && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+          {metricCards.map((card) => (
+            <MetricCard key={card.key} {...card} />
           ))}
         </div>
-      </div>
+      )}
 
-      <ReportBlock title="Company Overview" report={data.companyOverview} />
-
-      <div className="grid md:grid-cols-2 gap-5">
-        <ResultList title="Bullish Factors" items={data.bullishFactors || []} tone="text-emerald-400" marker="▲" />
-        <ResultList title="Bearish Factors" items={data.bearishFactors || []} tone="text-rose-400" marker="▼" />
-      </div>
-
-      <div className="rounded-2xl bg-[#0B0F19] border border-white/5 p-6">
-        <div className="text-[10px] text-slate-500 uppercase tracking-widest mb-5 font-black">Fundamental Metrics</div>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-          {fundamentalFields.map((f) => (
-            <div key={f.key}>
-              <div className="text-[10px] text-slate-500 mb-1">{f.label}</div>
-              <div className="text-sm font-bold text-white">{formatValue(data.fundamentals?.[f.key]?.value)}</div>
-            </div>
-          ))}
+      {availableValuationFields.length > 0 && (
+        <div className="rounded-2xl bg-[#0B0F19] border border-white/5 p-6">
+          <div className="text-[10px] text-slate-500 uppercase tracking-widest mb-5 font-black">Valuation Metrics</div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+            {availableValuationFields.map((f) => (
+              <div key={f.key}>
+                <div className="text-[10px] text-slate-500 mb-1">{f.label}</div>
+                <div className="text-sm font-bold text-white">{formatValue(f.value)}</div>
+              </div>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
 
-      <ReportBlock title="Detailed Investment Case" report={data.report} />
+      {hasValue(data.companyOverview) && (
+        <ReportBlock title="Company Overview" report={data.companyOverview} />
+      )}
+
+      {(bullishFactors.length > 0 || bearishFactors.length > 0) && (
+        <div className={`grid gap-5 ${bullishFactors.length > 0 && bearishFactors.length > 0 ? "md:grid-cols-2" : ""}`}>
+          {bullishFactors.length > 0 && (
+            <ResultList title="Bullish Factors" items={bullishFactors} tone="text-emerald-400" marker="▲" />
+          )}
+          {bearishFactors.length > 0 && (
+            <ResultList title="Bearish Factors" items={bearishFactors} tone="text-rose-400" marker="▼" />
+          )}
+        </div>
+      )}
+
+      {availableFundamentalFields.length > 0 && (
+        <div className="rounded-2xl bg-[#0B0F19] border border-white/5 p-6">
+          <div className="text-[10px] text-slate-500 uppercase tracking-widest mb-5 font-black">Fundamental Metrics</div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+            {availableFundamentalFields.map((f) => (
+              <div key={f.key}>
+                <div className="text-[10px] text-slate-500 mb-1">{f.key}</div>
+                <div className="text-sm font-bold text-white">
+                  {formatValue(f.data.Value)}
+                  {f.data.Classification && hasValue(f.data.Classification) && f.data.Classification !== "Data Not Available" && (
+                    <span className={`ml-2 text-[10px] ${
+                      f.data.Classification === "Strong" ? "text-emerald-400" :
+                      f.data.Classification === "Weak" ? "text-rose-400" : "text-slate-400"
+                    }`}>
+                      {f.data.Classification}
+                    </span>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {chartData.length > 0 && (
+        <div className="rounded-2xl bg-[#0B0F19] border border-white/5 p-6">
+          <div className="text-[10px] text-slate-500 uppercase tracking-widest mb-5 font-black">Price Chart</div>
+          <ResponsiveContainer width="100%" height={300}>
+            <AreaChart data={chartData}>
+              <defs>
+                <linearGradient id="colorValue" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#22D3EE" stopOpacity={0.3} />
+                  <stop offset="95%" stopColor="#22D3EE" stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
+              <XAxis dataKey="time" tick={{ fontSize: 10, fill: "#64748B" }} axisLine={false} tickLine={false} />
+              <YAxis tick={{ fontSize: 10, fill: "#64748B" }} axisLine={false} tickLine={false} domain={["auto", "auto"]} />
+              <Tooltip content={<CustomTooltip />} />
+              <Area type="monotone" dataKey="value" stroke="#22D3EE" strokeWidth={2} fill="url(#colorValue)" />
+            </AreaChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+
+      {availableRiskFields.length > 0 && (
+        <div className="rounded-2xl bg-[#0B0F19] border border-white/5 p-6">
+          <div className="text-[10px] text-slate-500 uppercase tracking-widest mb-5 font-black">Risk Analysis</div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+            {availableRiskFields.map((f) => (
+              <div key={f.key}>
+                <div className="text-[10px] text-slate-500 mb-1">{f.label}</div>
+                <div className="text-sm font-bold text-white">
+                  {f.key === "Classification" ? (
+                    <span className={`px-2 py-0.5 rounded text-[11px] font-bold ${
+                      String(f.value).toLowerCase() === "low" ? "bg-emerald-500/10 text-emerald-400" :
+                      String(f.value).toLowerCase() === "high" ? "bg-rose-500/10 text-rose-400" :
+                      "bg-amber-500/10 text-amber-400"
+                    }`}>{f.value}</span>
+                  ) : (
+                    <>{f.value}{f.suffix || ""}</>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {availableAnalystFields.length > 0 && (
+        <div className="rounded-2xl bg-[#0B0F19] border border-white/5 p-6">
+          <div className="text-[10px] text-slate-500 uppercase tracking-widest mb-5 font-black">Analyst Ratings</div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+            {availableAnalystFields.map((f) => (
+              <div key={f.key}>
+                <div className="text-[10px] text-slate-500 mb-1">{f.label}</div>
+                <div className="text-sm font-bold text-white">{f.fmt === "currency" ? formatValue(f.value, "currency") : f.value}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {latestNews.length > 0 && (
+        <div className="rounded-2xl bg-[#0B0F19] border border-white/5 p-6">
+          <div className="text-[10px] text-slate-500 uppercase tracking-widest mb-5 font-black">Latest News</div>
+          <div className="space-y-3">
+            {latestNews.filter(hasValue).map((news, i) => (
+              <div key={i} className="flex items-start gap-3 text-[13px] text-slate-300 leading-relaxed">
+                <span className="text-slate-600 mt-0.5 shrink-0">●</span>
+                <span>{news}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {hasValue(data.report) && (
+        <ReportBlock title="Detailed Investment Case" report={data.report} />
+      )}
     </div>
   );
 }
@@ -334,10 +502,157 @@ function ResultList({ title, items = [], tone, marker }) {
   );
 }
 
-function ResultsDisplay({ type, data }) {
+const scoreColors = {
+  Excellent: { stroke: "#22C55E", bg: "rgba(34,197,94,0.15)", text: "text-emerald-400", track: "stroke-emerald-500/10" },
+  Good: { stroke: "#3B82F6", bg: "rgba(59,130,246,0.15)", text: "text-blue-400", track: "stroke-blue-500/10" },
+  "Needs Work": { stroke: "#F97316", bg: "rgba(249,115,22,0.15)", text: "text-orange-400", track: "stroke-orange-500/10" },
+  Poor: { stroke: "#EF4444", bg: "rgba(239,68,68,0.15)", text: "text-red-400", track: "stroke-red-500/10" },
+};
+
+function ScoreRing({ label, score, scoreLabel, size = 140 }) {
+  const colors = scoreColors[scoreLabel] || scoreColors.Poor;
+  const radius = 54;
+  const circumference = 2 * Math.PI * radius;
+  const offset = circumference - (score / 100) * circumference;
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, scale: 0.85 }}
+      animate={{ opacity: 1, scale: 1 }}
+      transition={{ duration: 0.5 }}
+      className="flex flex-col items-center gap-2"
+    >
+      <div className="relative" style={{ width: size, height: size }}>
+        <svg width={size} height={size} className="-rotate-90">
+          <circle cx={size / 2} cy={size / 2} r={radius} fill="none" stroke="rgba(255,255,255,0.05)" strokeWidth="8" />
+          <motion.circle
+            cx={size / 2} cy={size / 2} r={radius} fill="none"
+            stroke={colors.stroke} strokeWidth="8" strokeLinecap="round"
+            strokeDasharray={circumference}
+            initial={{ strokeDashoffset: circumference }}
+            animate={{ strokeDashoffset: offset }}
+            transition={{ duration: 1.2, ease: "easeOut" }}
+          />
+        </svg>
+        <div className="absolute inset-0 flex flex-col items-center justify-center">
+          <span className="text-3xl font-black text-white">{score}</span>
+          <span className="text-[10px] font-bold uppercase tracking-wider" style={{ color: colors.stroke }}>{scoreLabel}</span>
+        </div>
+      </div>
+      <span className="text-[10px] text-slate-500 uppercase tracking-widest font-black text-center">{label}</span>
+    </motion.div>
+  );
+}
+
+function WebsiteAuditResults({ data, screenshot }) {
+  const scores = data.scores || {};
+  const issues = data.issues || [];
+  const suggestions = data.suggestions || [];
+
+  const scoreKeys = [
+    { key: "on_page_seo", label: "On-Page SEO" },
+    { key: "performance", label: "Performance" },
+    { key: "accessibility", label: "Accessibility" },
+    { key: "seo", label: "SEO" },
+    { key: "best_practices", label: "Best Practices" },
+  ];
+
+  return (
+    <div className="space-y-8">
+      {screenshot && (
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="rounded-2xl bg-[#0B0F19] border border-white/5 p-6 overflow-hidden"
+        >
+          <div className="text-[10px] text-slate-500 uppercase tracking-widest mb-4 font-black flex items-center gap-3">
+            <span className="w-2 h-2 rounded-full bg-gradient-to-r from-amber-400 to-orange-500" />
+            Desktop Preview
+          </div>
+          <div className="relative w-full rounded-xl overflow-hidden border border-white/5 shadow-2xl" style={{ maxHeight: 400 }}>
+            <motion.img
+              src={screenshot}
+              alt="Desktop preview"
+              className="w-full h-auto object-top object-cover"
+              initial={{ opacity: 0, scale: 1.05 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ duration: 0.6, ease: "easeOut" }}
+              style={{ maxHeight: 400 }}
+            />
+            <div className="absolute bottom-0 left-0 right-0 h-20 bg-gradient-to-t from-[#0B0F19] to-transparent pointer-events-none" />
+          </div>
+        </motion.div>
+      )}
+
+      <div className="rounded-2xl bg-[#0B0F19] border border-white/5 p-6">
+        <div className="text-[10px] text-slate-500 uppercase tracking-widest mb-7 font-black flex items-center gap-3">
+          <span className="w-2 h-2 rounded-full bg-gradient-to-r from-amber-400 to-orange-500" />
+          Audit Scores
+          {data.url && <span className="text-[10px] text-slate-600 font-mono ml-auto truncate max-w-[300px]">{data.url}</span>}
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-6 justify-items-center">
+          {scoreKeys.map(({ key, label: ringLabel }) => {
+            const s = scores[key];
+            if (!s) return null;
+            return <ScoreRing key={key} label={ringLabel} score={s.score} scoreLabel={s.label} />;
+          })}
+        </div>
+      </div>
+
+      {issues.length > 0 && (
+        <div className="rounded-2xl bg-[#0B0F19] border border-rose-500/10 p-6">
+          <div className="text-[10px] text-rose-400 uppercase tracking-widest mb-5 font-black flex items-center gap-3">
+            <span className="w-2 h-2 rounded-full bg-rose-500" />
+            Issues Found ({issues.length})
+          </div>
+          <div className="space-y-3">
+            {issues.map((issue, i) => (
+              <motion.div
+                key={i}
+                initial={{ opacity: 0, x: -10 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: i * 0.05 }}
+                className="flex items-start gap-3 p-3 rounded-xl bg-rose-500/5 border border-rose-500/10"
+              >
+                <span className="text-rose-400 mt-0.5 shrink-0 text-sm">⚠</span>
+                <span className="text-[13px] text-slate-300 leading-relaxed">{issue}</span>
+              </motion.div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {suggestions.length > 0 && (
+        <div className="rounded-2xl bg-[#0B0F19] border border-emerald-500/10 p-6">
+          <div className="text-[10px] text-emerald-400 uppercase tracking-widest mb-5 font-black flex items-center gap-3">
+            <span className="w-2 h-2 rounded-full bg-emerald-500" />
+            Suggestions ({suggestions.length})
+          </div>
+          <div className="space-y-3">
+            {suggestions.map((suggestion, i) => (
+              <motion.div
+                key={i}
+                initial={{ opacity: 0, x: -10 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: i * 0.05 }}
+                className="flex items-start gap-3 p-3 rounded-xl bg-emerald-500/5 border border-emerald-500/10"
+              >
+                <span className="text-emerald-400 mt-0.5 shrink-0 text-sm">✦</span>
+                <span className="text-[13px] text-slate-300 leading-relaxed">{suggestion}</span>
+              </motion.div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ResultsDisplay({ type, data, screenshot }) {
   if (!data) return null;
   if (type === "stock") return <StockResults data={data} />;
   if (type === "resume") return <ResumeResults data={data} />;
+  if (type === "website_audit") return <WebsiteAuditResults data={data} screenshot={screenshot} />;
   return null;
 }
 
@@ -398,6 +713,7 @@ export default function RightPanel({
   logs,
   progress,
   results,
+  screenshot,
   providerStatus,
   backendConnected,
   lastError,
@@ -535,7 +851,7 @@ export default function RightPanel({
               <div className="h-px flex-1 bg-white/5" />
             </div>
             
-            <ResultsDisplay type={config.resultType} data={results} />
+            <ResultsDisplay type={config.resultType} data={results} screenshot={screenshot} />
           </motion.div>
         )}
       </div>

@@ -4,6 +4,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from app.agents.resume_agent import run_resume_agent
 from app.agents.stock_agent import run_stock_agent
+from app.agents.website_audit_agent import run_website_audit_agent
 from app.database.sqlite import save_run
 from app.models.schemas import AgentEvent, AgentRunRequest
 
@@ -14,6 +15,7 @@ router = APIRouter()
 RUNNERS = {
     "stock": run_stock_agent,
     "resume": run_resume_agent,
+    "website_audit": run_website_audit_agent,
 }
 
 _USER_402_MESSAGE = (

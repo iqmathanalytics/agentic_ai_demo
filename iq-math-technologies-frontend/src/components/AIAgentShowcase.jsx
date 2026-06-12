@@ -57,6 +57,7 @@ export default function AIAgentsShowcase() {
   const [logs, setLogs] = useState([nowLine("Agent runtime ready. Select a workflow to begin.")]);
   const [progress, setProgress] = useState(0);
   const [results, setResults] = useState(null);
+  const [screenshot, setScreenshot] = useState(null);
   const [lastError, setLastError] = useState("");
   const [backendConnected, setBackendConnected] = useState(false);
   const socketRef = useRef(null);
@@ -122,6 +123,7 @@ export default function AIAgentsShowcase() {
       setLogs([nowLine("Connecting to FastAPI agent runtime...")]);
       setProgress(1);
       setResults(null);
+      setScreenshot(null);
       setLastError("");
 
       const normalizedInput = { ...input };
@@ -157,6 +159,9 @@ export default function AIAgentsShowcase() {
           if (typeof event.progress === "number" && event.progress > 0) setProgress(event.progress);
           if (event.type === "agent_started" || event.type === "agent_running" || event.type === "agent_completed" || event.type === "agent_failed") {
             updateStep(event);
+          }
+          if (event.type === "preview") {
+            setScreenshot(event.payload?.preview || null);
           }
           if (event.type === "final" || event.type === "run_completed") {
             const result = event.payload?.result;
@@ -235,6 +240,7 @@ export default function AIAgentsShowcase() {
 
   const handleStockSubmit = useCallback((formData) => runAgent("stock", formData), [runAgent]);
   const handleResumeSubmit = useCallback((formData) => runAgent("resume", formData), [runAgent]);
+  const handleWebsiteAuditSubmit = useCallback((formData) => runAgent("website_audit", formData), [runAgent]);
 
   const handleRunAgain = useCallback(() => {
     if (!selectedAgent) return;
@@ -311,6 +317,7 @@ export default function AIAgentsShowcase() {
                 logs={logs}
                 progress={progress}
                 results={results}
+                screenshot={screenshot}
                 providerStatus={providerStatus}
                 backendConnected={backendConnected}
                 lastError={lastError}
@@ -343,6 +350,7 @@ export default function AIAgentsShowcase() {
         onChangeProvider={() => setActiveModal("credentials")}
         onStockSubmit={handleStockSubmit}
         onResumeSubmit={handleResumeSubmit}
+        onWebsiteAuditSubmit={handleWebsiteAuditSubmit}
       />
 
       <style>{`
