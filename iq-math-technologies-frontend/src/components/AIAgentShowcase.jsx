@@ -150,26 +150,34 @@ export default function AIAgentsShowcase() {
       };
 
       socket.onmessage = (message) => {
-        const event = JSON.parse(message.data);
-        if (event.message) appendLog(event.message);
-        if (typeof event.progress === "number" && event.progress > 0) setProgress(event.progress);
-        if (event.type === "agent_started" || event.type === "agent_running" || event.type === "agent_completed" || event.type === "agent_failed") {
-          updateStep(event);
-        }
-        if (event.type === "final" || event.type === "run_completed") {
-          const result = event.payload?.result;
-          if (result) setResults(result);
-          setStatus("completed");
-          setProgress(100);
-          if (event.type === "run_completed") {
-            console.log("[Agent] Workflow completed successfully");
+        try {
+          console.log("WS MESSAGE:", message.data);
+          const event = JSON.parse(message.data);
+          if (event.message) appendLog(event.message);
+          if (typeof event.progress === "number" && event.progress > 0) setProgress(event.progress);
+          if (event.type === "agent_started" || event.type === "agent_running" || event.type === "agent_completed" || event.type === "agent_failed") {
+            updateStep(event);
           }
-        }
-        if (event.type === "run_failed" || event.type === "agent_failed") {
-          console.error("[Agent] Workflow failed:", event.message);
-          setStatus("failed");
-          setLastError(event.message || "Agent execution failed.");
-          handleRuntimeAuthError(event.message);
+          if (event.type === "final" || event.type === "run_completed") {
+            const result = event.payload?.result;
+            if (result) {
+              console.log("API RESPONSE", result);
+              setResults(result);
+            }
+            setStatus("completed");
+            setProgress(100);
+            if (event.type === "run_completed") {
+              console.log("[Agent] Workflow completed successfully");
+            }
+          }
+          if (event.type === "run_failed" || event.type === "agent_failed") {
+            console.error("[Agent] Workflow failed:", event.message);
+            setStatus("failed");
+            setLastError(event.message || "Agent execution failed.");
+            handleRuntimeAuthError(event.message);
+          }
+        } catch (err) {
+          console.error("Failed to parse WebSocket message:", err, message.data);
         }
       };
 

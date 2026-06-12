@@ -454,9 +454,52 @@ function getTimeLeft(targetDate) {
   };
 }
 
+class ErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error, errorInfo) {
+    console.error("React Crash caught by ErrorBoundary:", error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="min-h-screen bg-[#0B0F19] flex items-center justify-center p-6">
+          <div className="max-w-md w-full p-8 rounded-3xl border border-rose-500/20 bg-rose-500/5 text-center">
+            <div className="text-4xl mb-6">⚠️</div>
+            <h2 className="text-white font-bold text-xl mb-3">Agent execution failed</h2>
+            <p className="text-slate-400 text-sm mb-6 leading-relaxed">
+              The application encountered an unexpected error. This usually happens when the agent returns data in an unrecognized format.
+            </p>
+            <div className="p-4 rounded-xl bg-black/40 border border-white/5 text-left mb-6 overflow-x-auto">
+              <code className="text-[10px] text-rose-300 font-mono whitespace-pre">
+                {this.state.error?.toString()}
+              </code>
+            </div>
+            <button
+              onClick={() => window.location.reload()}
+              className="w-full py-3 rounded-xl bg-white/10 text-white text-sm font-bold hover:bg-white/20 transition-all"
+            >
+              Reload Application
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 export default function App() {
   return (
-    <>
+    <ErrorBoundary>
       <Header />
       <main>
         <Hero />
@@ -471,6 +514,6 @@ export default function App() {
         <FAQ />
       </main>
       <Footer />
-    </>
+    </ErrorBoundary>
   );
 }

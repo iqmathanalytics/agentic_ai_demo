@@ -1,4 +1,5 @@
 import { motion } from "framer-motion";
+import ReactMarkdown from "react-markdown";
 import {
   Area,
   AreaChart,
@@ -113,65 +114,132 @@ function ReportBlock({ title, report }) {
         <div className="w-2 h-2 rounded-full bg-gradient-to-r from-cyan-400 to-blue-500" />
         {title}
       </div>
-      <div className="prose prose-invert max-w-none">
-        <div className="whitespace-pre-wrap text-[13px] text-slate-300 leading-relaxed font-sans opacity-90">{report}</div>
+      <div className="prose prose-invert prose-sm max-w-none prose-headings:text-cyan-400 prose-headings:font-black prose-p:text-slate-300 prose-li:text-slate-300 prose-strong:text-white">
+        <ReactMarkdown>{report}</ReactMarkdown>
       </div>
     </div>
   );
 }
 
-function formatMarketCap(mc) {
-  if (mc == null) return "Unavailable";
-  if (mc >= 1e12) return `$${(mc / 1e12).toFixed(2)}T`;
-  if (mc >= 1e9) return `$${(mc / 1e9).toFixed(2)}B`;
-  if (mc >= 1e6) return `$${(mc / 1e6).toFixed(2)}M`;
-  return `$${mc.toLocaleString()}`;
+function formatValue(value, fmt) {
+  if (value == null || (typeof value === "number" && Number.isNaN(value))) {
+    return "Data Not Available";
+  }
+  if (typeof value === "number") {
+    if (fmt === "currency") {
+      return "$" + (Number.isInteger(value) ? value.toLocaleString() : value.toFixed(2));
+    }
+    if (Math.abs(value) < 1 && value !== 0) {
+      return (value * 100).toFixed(2).replace(/\.?0+$/, "") + "%";
+    }
+    if (value >= 1e12) return "$" + (value / 1e12).toFixed(2) + "T";
+    if (value >= 1e9) return "$" + (value / 1e9).toFixed(2) + "B";
+    if (value >= 1e6) return "$" + (value / 1e6).toFixed(2) + "M";
+    return Number.isInteger(value) ? value.toLocaleString() : value.toFixed(2);
+  }
+  return String(value);
+}
+
+function MetricCard({ label, value, className, labelColor }) {
+  return (
+    <motion.div whileHover={{ y: -4 }} className={`p-6 rounded-2xl border shadow-lg ${className || ""}`}>
+      <div className={`text-[10px] uppercase tracking-widest font-black mb-3 ${labelColor || "text-slate-500"}`}>{label}</div>
+      <div className="text-3xl font-black text-white tracking-tighter">{value}</div>
+    </motion.div>
+  );
 }
 
 function StockResults({ data }) {
-  const hasChart = data?.chartData?.length > 0;
+  console.log("FULL RESPONSE", data);
+  console.log("MARKET METRICS", data.marketMetrics);
+  console.log("RECOMMENDATION", data.recommendation);
+  console.log("ANALYST RATINGS", data.analystRatings);
+  console.log("VALUATION", data.valuation);
+  console.log("FUNDAMENTALS", data.fundamentals);
+
+  if (!data.companyOverview) {
+    return (
+      <div className="space-y-8">
+        <ReportBlock title="Comprehensive Equity Research Report" report={data.report} />
+      </div>
+    );
+  }
+
+  const valuationFields = [
+    { label: "Trailing PE", key: "trailingPE" },
+    { label: "Forward PE", key: "forwardPE" },
+    { label: "EV/EBITDA", key: "evToEBITDA" },
+    { label: "Assessment", key: "assessment" },
+  ];
+
+  const fundamentalFields = [
+    { label: "Revenue Growth", key: "revenueGrowth" },
+    { label: "Gross Margin", key: "grossMargin" },
+    { label: "ROE", key: "roe" },
+    { label: "Debt/Equity", key: "debtToEquity" },
+  ];
+
   return (
     <div className="space-y-8">
-      {hasChart && (
-        <div className="rounded-2xl bg-white/[0.02] border border-white/5 p-6 backdrop-blur-sm">
-          <div className="flex items-center justify-between mb-6">
-            <div className="text-[10px] text-slate-500 uppercase tracking-widest font-bold">Historical Performance</div>
-            <div className="px-2 py-0.5 rounded-full bg-cyan-500/10 text-cyan-400 text-[10px] font-bold border border-cyan-500/20">LIVE DATA</div>
-          </div>
-          <ResponsiveContainer width="100%" height={240}>
-            <AreaChart data={data.chartData}>
-              <defs>
-                <linearGradient id="priceGradient" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#06B6D4" stopOpacity={0.4} />
-                  <stop offset="100%" stopColor="#06B6D4" stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.03)" vertical={false} />
-              <XAxis dataKey="time" tick={{ fontSize: 9, fill: "#475569" }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fontSize: 9, fill: "#475569" }} axisLine={false} tickLine={false} />
-              <Tooltip content={<CustomTooltip />} />
-              <Area type="monotone" dataKey="value" stroke="#06B6D4" strokeWidth={2.5} fill="url(#priceGradient)" />
-            </AreaChart>
-          </ResponsiveContainer>
-        </div>
-      )}
-
-      <div className="grid grid-cols-2 md:grid-cols-3 gap-5">
-        {[
-          ["Current Price", data.currentPrice != null ? `$${data.currentPrice.toLocaleString()}` : "N/A", "text-white"],
-          ["24h Change", data.change != null ? `${data.change}%` : "N/A", data.change >= 0 ? "text-emerald-400" : "text-rose-400"],
-          ["SMA 20 Day", data.sma20 ?? "N/A", "text-slate-300"],
-          ["SMA 50 Day", data.sma50 ?? "N/A", "text-slate-300"],
-          ["Trading Volume", data.volume != null ? data.volume.toLocaleString() : "N/A", "text-slate-300"],
-          ["Market Cap", formatMarketCap(data.marketCap), "text-slate-300"],
-        ].map(([label, value, color]) => (
-          <div key={label} className="p-5 rounded-2xl bg-[#121826] border border-white/5 transition-all hover:border-white/10 hover:shadow-xl">
-            <div className="text-[10px] text-slate-500 uppercase tracking-widest mb-2 font-bold">{label}</div>
-            <div className={`text-xl font-black ${color}`}>{value}</div>
-          </div>
-        ))}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-5">
+        <MetricCard
+          label="Current Price"
+          value={<div className="text-3xl font-black text-white tracking-tighter">{formatValue(data.valuation?.["Current Price"], "currency")}</div>}
+          className="bg-gradient-to-br from-cyan-600/10 via-blue-600/5 to-transparent border-cyan-500/20"
+          labelColor="text-cyan-400"
+        />
+        <MetricCard
+          label="Market Cap"
+          value={<div className="text-3xl font-black text-white tracking-tighter">{formatValue(data.valuation?.["Market Cap"])}</div>}
+          className="bg-gradient-to-br from-sky-600/10 via-teal-600/5 to-transparent border-sky-500/20"
+          labelColor="text-sky-400"
+        />
+        <MetricCard
+          label="Recommendation"
+          value={<><div className="text-3xl font-black text-white tracking-tighter">{data.recommendation?.rating ?? "N/A"}</div><div className="text-[11px] text-slate-500 mt-2">Confidence: {data.recommendation?.confidence ?? "N/A"}</div></>}
+          className="bg-gradient-to-br from-emerald-600/10 via-teal-600/5 to-transparent border-emerald-500/20"
+          labelColor="text-emerald-400"
+        />
+        <MetricCard
+          label="Target Price"
+          value={<><div className="text-3xl font-black text-white tracking-tighter">{formatValue(data.analystRatings?.targetMeanPrice, "currency")}</div><div className="text-[11px] text-slate-500 mt-2">Consensus: {data.analystRatings?.consensusRating ?? "N/A"}</div></>}
+          className="bg-gradient-to-br from-indigo-600/10 via-purple-600/5 to-transparent border-indigo-500/20"
+          labelColor="text-indigo-400"
+        />
       </div>
-      <ReportBlock title="Investment Thesis & Risks" report={data.report} />
+
+      <div className="rounded-2xl bg-[#0B0F19] border border-white/5 p-6">
+        <div className="text-[10px] text-slate-500 uppercase tracking-widest mb-5 font-black">Valuation Metrics</div>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+          {valuationFields.map((f) => (
+            <div key={f.key}>
+              <div className="text-[10px] text-slate-500 mb-1">{f.label}</div>
+              <div className="text-sm font-bold text-white">{formatValue(data.valuation?.[f.key])}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <ReportBlock title="Company Overview" report={data.companyOverview} />
+
+      <div className="grid md:grid-cols-2 gap-5">
+        <ResultList title="Bullish Factors" items={data.bullishFactors || []} tone="text-emerald-400" marker="▲" />
+        <ResultList title="Bearish Factors" items={data.bearishFactors || []} tone="text-rose-400" marker="▼" />
+      </div>
+
+      <div className="rounded-2xl bg-[#0B0F19] border border-white/5 p-6">
+        <div className="text-[10px] text-slate-500 uppercase tracking-widest mb-5 font-black">Fundamental Metrics</div>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+          {fundamentalFields.map((f) => (
+            <div key={f.key}>
+              <div className="text-[10px] text-slate-500 mb-1">{f.label}</div>
+              <div className="text-sm font-bold text-white">{formatValue(data.fundamentals?.[f.key]?.value)}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <ReportBlock title="Detailed Investment Case" report={data.report} />
     </div>
   );
 }
@@ -189,13 +257,13 @@ function ResumeResults({ data }) {
             <div className="text-[10px] font-bold text-violet-400 px-2 py-0.5 rounded bg-violet-500/10 border border-violet-500/20">PASSED</div>
           </div>
           <div className="flex items-baseline gap-2">
-            <div className="text-5xl font-black text-white tracking-tighter">{data.atsScore}</div>
+            <div className="text-5xl font-black text-white tracking-tighter">{data?.atsScore ?? 0}</div>
             <div className="text-slate-500 text-lg font-bold">/ 100</div>
           </div>
           <div className="w-full h-2.5 rounded-full bg-black/40 mt-6 overflow-hidden border border-white/5 p-[1px]">
             <motion.div
               initial={{ width: 0 }}
-              animate={{ width: `${data.atsScore}%` }}
+              animate={{ width: `${data?.atsScore ?? 0}%` }}
               transition={{ duration: 1, ease: "circOut" }}
               className="h-full rounded-full bg-gradient-to-r from-violet-500 to-indigo-500 shadow-[0_0_12px_rgba(139,92,246,0.5)]"
             />
@@ -211,13 +279,13 @@ function ResumeResults({ data }) {
             <div className="text-[10px] font-bold text-cyan-400 px-2 py-0.5 rounded bg-cyan-500/10 border border-cyan-500/20">HIGH</div>
           </div>
           <div className="flex items-baseline gap-2">
-            <div className="text-5xl font-black text-white tracking-tighter">{data.skillMatch}</div>
+            <div className="text-5xl font-black text-white tracking-tighter">{data?.skillMatch ?? 0}</div>
             <div className="text-slate-500 text-lg font-bold">%</div>
           </div>
           <div className="w-full h-2.5 rounded-full bg-black/40 mt-6 overflow-hidden border border-white/5 p-[1px]">
             <motion.div
               initial={{ width: 0 }}
-              animate={{ width: `${data.skillMatch}%` }}
+              animate={{ width: `${data?.skillMatch ?? 0}%` }}
               transition={{ duration: 1, ease: "circOut" }}
               className="h-full rounded-full bg-gradient-to-r from-cyan-500 to-blue-500 shadow-[0_0_12px_rgba(6,182,212,0.5)]"
             />
@@ -226,25 +294,25 @@ function ResumeResults({ data }) {
       </div>
 
       <div className="grid md:grid-cols-2 gap-5">
-        <ResultList title="Top Candidate Strengths" items={data.strengths} tone="text-emerald-400" marker="★" />
-        <ResultList title="Critical Skill Gaps" items={data.weaknesses} tone="text-rose-400" marker="⚠" />
+        <ResultList title="Top Candidate Strengths" items={data?.strengths || []} tone="text-emerald-400" marker="★" />
+        <ResultList title="Critical Skill Gaps" items={data?.weaknesses || []} tone="text-rose-400" marker="⚠" />
       </div>
 
       <div className="p-6 rounded-2xl bg-[#0F172A] border border-white/5">
         <div className="text-[10px] text-slate-500 uppercase tracking-widest mb-5 font-black">Missing Technical Keywords</div>
         <div className="flex flex-wrap gap-2.5">
-          {data.missingSkills.map((item) => (
+          {(data?.missingSkills || []).map((item) => (
             <span key={item} className="px-3.5 py-2 rounded-xl text-[11px] font-bold bg-white/5 text-slate-300 border border-white/10 hover:border-cyan-500/50 hover:text-cyan-400 transition-all cursor-default">
               {item}
             </span>
           ))}
-          {data.missingSkills.length === 0 && <span className="text-xs text-slate-600 italic">No missing skills detected based on the target profile.</span>}
+          {(!data?.missingSkills || data.missingSkills.length === 0) && <span className="text-xs text-slate-600 italic">No missing skills detected based on the target profile.</span>}
         </div>
       </div>
       
-      <ResultList title="Personalized Career Roadmap" items={data.suggestions} tone="text-cyan-400" marker="➜" />
+      <ResultList title="Personalized Career Roadmap" items={data?.suggestions || []} tone="text-cyan-400" marker="➜" />
 
-      <ReportBlock title="Executive Recruiter Insight & Feedback" report={data.recruiterFeedback || data.report} />
+      <ReportBlock title="Executive Recruiter Insight & Feedback" report={data?.recruiterFeedback || data?.report} />
     </div>
   );
 }

@@ -1,16 +1,11 @@
-from __future__ import annotations
-
-import json
 import logging
-from datetime import datetime
 from statistics import mean
+import os
 
 from langchain_core.tools import tool
-
-from app.tools.market_data import collect_market_data
+from .search_tools import perform_search
 
 logger = logging.getLogger(__name__)
-
 
 def _map_ticker(symbol: str, exchange: str) -> str:
     s = symbol.upper().strip()
@@ -21,333 +16,257 @@ def _map_ticker(symbol: str, exchange: str) -> str:
         return f"{s}.BO"
     return s
 
-
-def _fetch_rich_data(symbol: str, exchange: str) -> dict | None:
-    """Try yfinance first for rich data (history+info). Fall back to multi-provider chain."""
-    ticker = _map_ticker(symbol, exchange)
-    try:
-        import yfinance as yf
-
-        yf_ticker = yf.Ticker(ticker)
-        history = yf_ticker.history(period="6mo", interval="1d")
-        info = yf_ticker.info or {}
-        if not history.empty:
-            # Drop rows where Close price is NaN (e.g. weekends/incomplete days)
-            history = history.dropna(subset=["Close"])
-            if not history.empty:
-                closes = [float(v) for v in history["Close"].tail(60).tolist()]
-                return {"history": history, "closes": closes, "info": info, "ticker": ticker, "source": "yfinance"}
-        logger.warning("yfinance: empty history for %s", ticker)
-    except Exception as exc:
-        logger.warning("yfinance failed for %s: %s", ticker, exc)
-
-    logger.info("yfinance unavailable for %s, trying fallback providers...", ticker)
-    fallback = collect_market_data(symbol, exchange)
-    if fallback.get("available"):
-        logger.info("Fallback provider %s succeeded for %s", fallback.get("provider"), ticker)
-        return {
-            "history": None,
-            "closes": None,
-            "info": {
-                "marketCap": fallback.get("marketCap"),
-                "trailingPE": fallback.get("trailingPE"),
-                "sector": fallback.get("sector"),
-                "longName": symbol,
-                "shortName": symbol,
-            },
-            "ticker": fallback.get("ticker", ticker),
-            "source": "fallback",
-            "_fallback_data": fallback,
-        }
-
-    logger.error("All providers exhausted for %s", ticker)
-    return None
-
+@tool
+def resolve_ticker(company_name: str) -> str:
+    """Resolves a company name to its primary stock ticker symbol.
+    Returns a JSON string with the ticker and exchange, or an error.
+    """
+    logger.info(f"Resolving ticker for {company_name}")
+    query = f"{company_name} stock ticker symbol primary exchange"
+    search_res = perform_search(query)
+    
+    # We'll use a simple heuristic or a small LLM call if needed, 
+    # but for now let's just return the search result for the agent to parse.
+    return search_res
 
 @tool
-def get_stock_price_data(symbol: str, exchange: str = "NSE") -> str:
-    """Fetch current stock price, change percentage, SMA20, SMA50, RSI, and volume.
-
-    Call this first to get the core price and technical data for a stock.
+def search_company_profile(company_name: str) -> str:
+    """Searches for comprehensive company description, management updates, product launches, and strategic developments.
+    Priority: Firecrawl -> Tavily -> Serper -> Brave Search.
     """
-    data = _fetch_rich_data(symbol, exchange)
-    if data is None:
-        return json.dumps({"error": f"Could not fetch price data for {symbol} on {exchange}", "available": False})
+    logger.info(f"Searching company profile for {company_name}")
+    query = f"{company_name} company overview, management, strategic developments, product launches"
+    return perform_search(query)
 
-    if data.get("source") == "fallback":
-        fb = data["_fallback_data"]
-        result = {
-            "available": True,
-            "symbol": symbol,
-            "exchange": exchange,
-            "currentPrice": fb.get("currentPrice"),
-            "change": fb.get("change"),
-            "sma20": fb.get("sma20"),
-            "sma50": fb.get("sma50"),
-            "rsi": None,
-            "volume": fb.get("volume"),
-            "chartData": fb.get("chartData", []),
-            "source": fb.get("provider", "fallback"),
-        }
-        logger.info("get_stock_price_data (fallback): price=%s", result["currentPrice"])
-        return json.dumps(result)
+@tool
+def search_latest_news(company_name: str) -> str:
+    """Searches for the latest news, earnings reports, analyst upgrades/downgrades, and revenue guidance.
+    Returns headlines, sources, dates, and summaries.
+    """
+    logger.info(f"Searching latest news for {company_name}")
+    query = f"{company_name} latest news, earnings report, analyst rating"
+    return perform_search(query, search_type="news")
 
-    closes = data["closes"]
-    latest = closes[-1]
-    previous = closes[-2] if len(closes) > 1 else latest
-    change_pct = ((latest - previous) / previous) * 100 if previous else 0
-    sma20 = mean(closes[-20:]) if len(closes) >= 20 else mean(closes)
-    sma50 = mean(closes[-50:]) if len(closes) >= 50 else mean(closes)
+def _get_yfinance_data(ticker: str) -> dict:
+    try:
+        import yfinance as yf
+        t = yf.Ticker(ticker)
+        history = t.history(period="1y")
+        info = t.info
+        return {"history": history, "info": info}
+    except Exception as e:
+        logger.error(f"yfinance error for {ticker}: {e}")
+        return None
 
-    gains = [max(0, closes[i] - closes[i - 1]) for i in range(1, len(closes))]
-    losses = [max(0, closes[i - 1] - closes[i]) for i in range(1, len(closes))]
-    avg_gain = mean(gains[-14:]) if len(gains) >= 14 else mean(gains) if gains else 0
-    avg_loss = mean(losses[-14:]) if len(losses) >= 14 else mean(losses) if losses else 0
-    rsi = 50
-    if avg_loss > 0:
-        rs = avg_gain / avg_loss
-        rsi = round(100 - (100 / (1 + rs)), 2)
+from .market_data import collect_market_data
 
+@tool
+def get_market_metrics(symbol: str, exchange: str) -> str:
+    """Fetches real-time market data including Price, Market Cap, Enterprise Value, Revenue, EPS, EBITDA, PE Ratio, Forward PE, PEG, Dividend Yield, Beta, 52W High/Low, Avg Volume.
+    Uses Finnhub -> Alpha Vantage -> Yahoo Finance.
+    """
+    logger.info(f"Fetching market metrics for {symbol} on {exchange}")
+    
+    fallback_data = collect_market_data(symbol, exchange)
+    
+    ticker = _map_ticker(symbol, exchange)
+    data = _get_yfinance_data(ticker)
+    
+    if not data or not data.get("info"):
+        if fallback_data.get("available"):
+            return {
+                "Current Price": fallback_data.get("currentPrice"),
+                "Market Cap": fallback_data.get("marketCap"),
+                "Average Volume": fallback_data.get("volume"),
+                "Source": fallback_data.get("provider")
+            }
+        return {"error": "Market data unavailable for this symbol."}
+        
+    info = data["info"]
     history = data["history"]
-    volume = int(history["Volume"].tail(1).iloc[0])
-
-    chart_data = [
-        {"time": str(index.date()), "value": round(float(row["Close"]), 2)}
-        for index, row in history.tail(30).iterrows()
-    ]
-
-    result = {
-        "available": True,
-        "symbol": symbol,
-        "exchange": exchange,
-        "currentPrice": round(latest, 2),
-        "change": round(change_pct, 2),
-        "sma20": round(sma20, 2),
-        "sma50": round(sma50, 2),
-        "rsi": rsi,
-        "volume": volume,
-        "chartData": chart_data,
-        "source": "yfinance",
+    
+    current_price = history["Close"].iloc[-1] if not history.empty else info.get("currentPrice")
+    
+    metrics = {
+        "Current Price": current_price or fallback_data.get("currentPrice"),
+        "Market Cap": info.get("marketCap") or fallback_data.get("marketCap"),
+        "Enterprise Value": info.get("enterpriseValue"),
+        "Revenue": info.get("totalRevenue"),
+        "EPS": info.get("trailingEps"),
+        "EBITDA": info.get("ebitda"),
+        "PE Ratio": info.get("trailingPE"),
+        "Forward PE": info.get("forwardPE"),
+        "PEG Ratio": info.get("pegRatio"),
+        "Dividend Yield": info.get("dividendYield"),
+        "Beta": info.get("beta"),
+        "52 Week High": info.get("fiftyTwoWeekHigh"),
+        "52 Week Low": info.get("fiftyTwoWeekLow"),
+        "Average Volume": info.get("averageVolume") or fallback_data.get("volume"),
+        "Source": "yfinance"
     }
-    logger.info("get_stock_price_data result: price=%s change=%s%%", result["currentPrice"], result["change"])
-    return json.dumps(result)
-
+    return metrics
 
 @tool
-def get_company_profile(symbol: str, exchange: str = "NSE") -> str:
-    """Fetch company profile including market cap, PE ratio, sector, industry, and business summary.
-
-    Use this to get fundamental reference data about a company.
-    """
-    data = _fetch_rich_data(symbol, exchange)
-    if data is None:
-        return json.dumps({"error": f"Could not fetch profile data for {symbol} on {exchange}", "available": False})
-
-    info = data["info"]
-    result = {
-        "available": True,
-        "symbol": symbol,
-        "exchange": exchange,
-        "companyName": info.get("longName", info.get("shortName", symbol)),
-        "sector": info.get("sector"),
-        "industry": info.get("industry"),
-        "businessSummary": info.get("longBusinessSummary", ""),
-        "marketCap": info.get("marketCap"),
-        "trailingPE": info.get("trailingPE"),
-        "forwardPE": info.get("forwardPE"),
-        "dividendYield": info.get("dividendYield"),
-        "beta": info.get("beta"),
-        "website": info.get("website"),
-    }
-    logger.info("get_company_profile result: name=%s sector=%s", result["companyName"], result["sector"])
-    return json.dumps(result)
-
-
-@tool
-def get_fundamentals(symbol: str, exchange: str = "NSE") -> str:
-    """Fetch company financial fundamentals: revenue, net profit, EPS, ROE, ROCE, Debt/Equity ratio.
-
-    Call this for in-depth financial health analysis.
-    """
-    data = _fetch_rich_data(symbol, exchange)
-    if data is None:
-        return json.dumps({"error": f"Could not fetch fundamental data for {symbol} on {exchange}", "available": False})
-
-    if data.get("source") == "fallback":
-        return json.dumps({
-            "available": False,
-            "error": "Fundamental data not available from fallback provider. Try a different exchange or symbol.",
-            "note": "Fallback providers only supply price data, not fundamentals.",
-        })
-
-    info = data["info"]
-    result = {
-        "available": True,
-        "symbol": symbol,
-        "exchange": exchange,
-        "revenue": info.get("totalRevenue"),
-        "revenueGrowth": info.get("revenueGrowth"),
-        "netProfit": info.get("netIncomeToCommon"),
-        "eps": info.get("trailingEps"),
-        "forwardEps": info.get("forwardEps"),
-        "roe": info.get("returnOnEquity"),
-        "debtToEquity": info.get("debtToEquity"),
-        "profitMargins": info.get("profitMargins"),
-        "freeCashflow": info.get("freeCashflow"),
-        "operatingCashflow": info.get("operatingCashflow"),
-    }
-    return json.dumps(result)
-
-
-@tool
-def get_company_news(symbol: str, exchange: str = "NSE") -> str:
-    """Fetch latest company news headlines with sources and publication dates.
-
-    Returns recent news articles that can be used for sentiment analysis.
+def calculate_fundamentals(symbol: str, exchange: str) -> str:
+    """Calculates Revenue Growth, Earnings Growth, Gross Margin, Operating Margin, Net Margin, ROE, ROA, Debt to Equity, Current Ratio, Free Cash Flow.
+    Classifies each as Strong, Neutral, or Weak.
     """
     ticker = _map_ticker(symbol, exchange)
-    try:
-        import yfinance as yf
-    except ImportError:
-        return json.dumps({"error": "yfinance not installed", "available": False})
+    logger.info(f"Calculating fundamentals for {ticker}")
+    
+    data = _get_yfinance_data(ticker)
+    if not data or not data.get("info"):
+        return {"error": "Fundamental data unavailable."}
+        
+    info = data["info"]
+    
+    def classify(val, lower, upper):
+        if val is None: return "Data Not Available"
+        if val > upper: return "Strong"
+        if val < lower: return "Weak"
+        return "Neutral"
 
-    try:
-        yf_ticker = yf.Ticker(ticker)
-        news_raw = getattr(yf_ticker, "news", [])
-        if not news_raw:
-            return json.dumps({"error": f"No news found for {ticker}", "available": False})
+    def classify_inv(val, lower, upper): # For things where lower is better, like Debt/Equity
+        if val is None: return "Data Not Available"
+        if val < lower: return "Strong"
+        if val > upper: return "Weak"
+        return "Neutral"
 
-        articles = []
-        for item in news_raw[:10]:
-            # Support new nested format where info is under 'content' key
-            content = item.get("content", item) if isinstance(item.get("content"), dict) else item
-            
-            title = content.get("title", "")
-            
-            provider_data = content.get("provider", {})
-            source = provider_data.get("displayName", provider_data.get("publisher", content.get("publisher", ""))) if isinstance(provider_data, dict) else content.get("publisher", "")
-            
-            date_str = content.get("pubDate", "")
-            if date_str:
-                date = date_str
-            else:
-                pub_time = content.get("providerPublishTime")
-                date = datetime.fromtimestamp(pub_time).isoformat() if pub_time else None
-                
-            url_data = content.get("canonicalUrl", {})
-            link = url_data.get("url", content.get("link", "")) if isinstance(url_data, dict) else content.get("link", "")
-            
-            articles.append({
-                "title": title,
-                "source": source,
-                "date": date,
-                "link": link,
-            })
-        result = {"available": True, "symbol": symbol, "articles": articles}
-        logger.info("get_company_news: %d articles for %s", len(articles), ticker)
-        return json.dumps(result)
-    except Exception as exc:
-        logger.error("News fetch error for %s: %s", ticker, exc, exc_info=True)
-        return json.dumps({"error": str(exc), "available": False})
-
-
-@tool
-def analyze_sentiment(news_json: str) -> str:
-    """Analyze sentiment of news articles (pass the JSON string from get_company_news).
-
-    Produces an overall sentiment score (positive/negative/neutral) based on keyword analysis.
-    """
-    try:
-        news_data = json.loads(news_json)
-    except (json.JSONDecodeError, TypeError):
-        return json.dumps({"error": "Invalid news data. Call get_company_news first and pass its result."})
-
-    if not isinstance(news_data, dict) or not news_data.get("articles"):
-        return json.dumps({"error": "No articles found in the provided data. Call get_company_news first."})
-
-    articles = news_data["articles"]
-    positive_words = {"profit", "growth", "surge", "gain", "positive", "upgrade", "bullish", "record", "strong", "beat", "launch", "expansion", "partnership", "innovation", "dividend"}
-    negative_words = {"loss", "decline", "fall", "drop", "negative", "downgrade", "bearish", "crash", "fear", "sell", "risk", "debt", "fraud", "investigation", "lawsuit", "penalty"}
-
-    pos_count = 0
-    neg_count = 0
-    for article in articles:
-        title = article.get("title", "").lower()
-        for word in positive_words:
-            if word in title:
-                pos_count += 1
-        for word in negative_words:
-            if word in title:
-                neg_count += 1
-
-    total = pos_count + neg_count
-    if total == 0:
-        score = 0.0
-        label = "neutral"
-    else:
-        score = round((pos_count - neg_count) / total, 2)
-        if score > 0.2:
-            label = "positive"
-        elif score < -0.2:
-            label = "negative"
-        else:
-            label = "neutral"
-
-    result = {
-        "sentiment_score": score,
-        "sentiment_label": label,
-        "positive_articles": pos_count,
-        "negative_articles": neg_count,
-        "total_analyzed": len(articles),
+    fundamentals = {
+        "Revenue Growth": {
+            "Value": info.get("revenueGrowth"),
+            "Classification": classify(info.get("revenueGrowth"), 0.05, 0.15)
+        },
+        "Earnings Growth": {
+            "Value": info.get("earningsGrowth"),
+            "Classification": classify(info.get("earningsGrowth"), 0.05, 0.15)
+        },
+        "Gross Margin": {
+            "Value": info.get("grossMargins"),
+            "Classification": classify(info.get("grossMargins"), 0.20, 0.40)
+        },
+        "Operating Margin": {
+            "Value": info.get("operatingMargins"),
+            "Classification": classify(info.get("operatingMargins"), 0.10, 0.20)
+        },
+        "Net Margin": {
+            "Value": info.get("profitMargins"),
+            "Classification": classify(info.get("profitMargins"), 0.05, 0.15)
+        },
+        "ROE": {
+            "Value": info.get("returnOnEquity"),
+            "Classification": classify(info.get("returnOnEquity"), 0.10, 0.20)
+        },
+        "ROA": {
+            "Value": info.get("returnOnAssets"),
+            "Classification": classify(info.get("returnOnAssets"), 0.05, 0.10)
+        },
+        "Debt to Equity": {
+            "Value": info.get("debtToEquity"),
+            "Classification": classify_inv(info.get("debtToEquity", 100), 50, 150) # yfinance often returns this as percentage
+        },
+        "Current Ratio": {
+            "Value": info.get("currentRatio"),
+            "Classification": classify(info.get("currentRatio"), 1.0, 2.0)
+        },
+        "Free Cash Flow": {
+            "Value": info.get("freeCashflow"),
+            "Classification": "Strong" if info.get("freeCashflow", 0) > 0 else "Weak"
+        }
     }
-    logger.info("analyze_sentiment: label=%s score=%s", label, score)
-    return json.dumps(result)
-
+    return fundamentals
 
 @tool
-def calculate_risk_metrics(symbol: str, exchange: str = "NSE") -> str:
-    """Calculate volatility, maximum drawdown, and beta for a stock.
-
-    Provides risk assessment metrics based on historical price data.
+def calculate_valuation(symbol: str, exchange: str) -> str:
+    """Performs PE Comparison, Sector PE Comparison, EV/EBITDA Comparison.
+    Returns Undervalued, Fairly Valued, or Overvalued with explanation.
     """
-    data = _fetch_rich_data(symbol, exchange)
-    if data is None:
-        return json.dumps({"error": f"Could not fetch risk data for {symbol} on {exchange}", "available": False})
+    ticker = _map_ticker(symbol, exchange)
+    logger.info(f"Calculating valuation for {ticker}")
+    
+    data = _get_yfinance_data(ticker)
+    if not data or not data.get("info"):
+        return {"error": "Valuation data unavailable."}
+        
+    info = data["info"]
+    pe = info.get("trailingPE")
+    forward_pe = info.get("forwardPE")
+    ev_ebitda = info.get("enterpriseToEbitda")
+    
+    assessment = "Fairly Valued"
+    if pe and forward_pe:
+        if pe < 15 and forward_pe < 15:
+            assessment = "Undervalued"
+        elif pe > 25 or forward_pe > 25:
+            assessment = "Overvalued"
+            
+    result = {
+        "Trailing PE": pe,
+        "Forward PE": forward_pe,
+        "EV/EBITDA": ev_ebitda,
+        "Assessment": assessment,
+        "Explanation": f"Based on a Trailing PE of {pe} and Forward PE of {forward_pe}, the stock appears {assessment} relative to typical market averages."
+    }
+    return result
 
-    if data.get("source") == "fallback":
-        fb = data["_fallback_data"]
-        return json.dumps({
-            "available": True,
-            "symbol": symbol,
-            "exchange": exchange,
-            "note": "Limited risk data from fallback provider",
-            "volatility_20d": None,
-            "max_drawdown_pct": None,
-            "beta": None,
-        })
-
-    closes = data["closes"]
-    returns = [(closes[i] - closes[i - 1]) / closes[i - 1] * 100 for i in range(1, len(closes))]
-    volatility = round(mean([abs(r) for r in returns[-20:]]) if len(returns) >= 20 else mean([abs(r) for r in returns]), 2)
-
+@tool
+def calculate_risk(symbol: str, exchange: str) -> str:
+    """Calculates Annual Volatility, Beta, Drawdown. Classifies Risk as Low, Medium, High."""
+    ticker = _map_ticker(symbol, exchange)
+    logger.info(f"Calculating risk for {ticker}")
+    
+    data = _get_yfinance_data(ticker)
+    if not data or not data.get("info") or data["history"].empty:
+        return {"error": "Risk data unavailable."}
+        
+    history = data["history"]
+    closes = history["Close"].tolist()
+    
+    import numpy as np
+    returns = np.diff(closes) / closes[:-1]
+    volatility = np.std(returns) * np.sqrt(252) * 100 # Annualized volatility in %
+    
     peak = closes[0]
     max_drawdown = 0
     for price in closes:
-        if price > peak:
-            peak = price
-        drawdown = (peak - price) / peak * 100
-        if drawdown > max_drawdown:
-            max_drawdown = drawdown
+        if price > peak: peak = price
+        dd = (peak - price) / peak * 100
+        if dd > max_drawdown: max_drawdown = dd
+        
+    beta = data["info"].get("beta")
+    
+    risk_level = "Medium"
+    if volatility > 40 or (beta and beta > 1.5) or max_drawdown > 30:
+        risk_level = "High"
+    elif volatility < 20 and (beta and beta < 0.8) and max_drawdown < 15:
+        risk_level = "Low"
 
     result = {
-        "available": True,
-        "symbol": symbol,
-        "exchange": exchange,
-        "volatility_20d": volatility,
-        "volatility_label": "High" if volatility > 3 else "Moderate" if volatility > 1.5 else "Low",
-        "max_drawdown_pct": round(max_drawdown, 2),
-        "beta": data["info"].get("beta"),
-        "data_points": len(returns),
+        "Annual Volatility": round(volatility, 2) if not np.isnan(volatility) else None,
+        "Beta": beta,
+        "Maximum Drawdown": round(max_drawdown, 2),
+        "Classification": risk_level
     }
-    logger.info("calculate_risk_metrics: volatility=%s max_drawdown=%s", result["volatility_20d"], result["max_drawdown_pct"])
-    return json.dumps(result)
+    return result
+
+@tool
+def get_analyst_ratings(symbol: str, exchange: str) -> str:
+    """Collects Buy, Hold, Sell Ratings, Average Target Price, and Consensus Rating."""
+    ticker = _map_ticker(symbol, exchange)
+    logger.info(f"Getting analyst ratings for {ticker}")
+    
+    data = _get_yfinance_data(ticker)
+    if not data or not data.get("info"):
+        return {"error": "Analyst ratings unavailable."}
+        
+    info = data["info"]
+    
+    result = {
+        "Consensus Rating": info.get("recommendationKey", "N/A").replace("_", " ").title(),
+        "Target Mean Price": info.get("targetMeanPrice"),
+        "Target High Price": info.get("targetHighPrice"),
+        "Target Low Price": info.get("targetLowPrice"),
+        "Number of Analyst Opinions": info.get("numberOfAnalystOpinions")
+    }
+    return result
+

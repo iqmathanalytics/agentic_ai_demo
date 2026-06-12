@@ -1,4 +1,4 @@
-from typing import Any, Literal
+from typing import Any, List, Literal
 
 from pydantic import BaseModel, Field
 
@@ -44,4 +44,18 @@ class AgentEvent(BaseModel):
     message: str | None = None
     progress: int = 0
     payload: dict[str, Any] = Field(default_factory=dict)
+
+
+class EquityReport(BaseModel):
+    companyOverview: str = Field(description="Executive summary of business")
+    latestNews: List[str] = Field(description="List of most important developments")
+    valuation: dict = Field(description="Current Price, Market Cap, PE, Sector Avg PE, etc.")
+    fundamentals: dict = Field(description="Revenue Growth, Margins, ROE, Debt/Equity, etc.")
+    bullishFactors: List[str] = Field(description="List of positive catalysts")
+    bearishFactors: List[str] = Field(description="List of negative risks")
+    riskAnalysis: dict = Field(description="Market Risk, Financial Risk, Business Risk scores")
+    analystRatings: dict = Field(description="Buy/Hold/Sell counts, Consensus, Target Price")
+    recommendation: dict = Field(description="Action (BUY/HOLD/SELL), Confidence (0-100), Reasoning")
+    outlook12Month: dict = Field(description="Base/Bull/Bear scenarios")
+    report: str = Field(description="The full detailed markdown report")
 
