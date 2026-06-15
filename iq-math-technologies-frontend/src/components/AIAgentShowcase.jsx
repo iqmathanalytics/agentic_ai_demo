@@ -59,6 +59,7 @@ export default function AIAgentsShowcase() {
   const [results, setResults] = useState(null);
   const [screenshot, setScreenshot] = useState(null);
   const [lastError, setLastError] = useState("");
+  const [creditAlert, setCreditAlert] = useState("");
   const [backendConnected, setBackendConnected] = useState(false);
   const socketRef = useRef(null);
 
@@ -125,6 +126,7 @@ export default function AIAgentsShowcase() {
       setResults(null);
       setScreenshot(null);
       setLastError("");
+      setCreditAlert("");
 
       const normalizedInput = { ...input };
       if (agentId === "resume" && input.file) {
@@ -176,10 +178,14 @@ export default function AIAgentsShowcase() {
             }
           }
           if (event.type === "run_failed" || event.type === "agent_failed") {
-            console.error("[Agent] Workflow failed:", event.message);
+            console.warn("[Agent] Workflow failed:", event.message);
             setStatus("failed");
-            setLastError(event.message || "Agent execution failed.");
+            const msg = (event.message || "").toLowerCase();
+            if (msg.includes("credit") || msg.includes("402") || msg.includes("token") || msg.includes("quota") || msg.includes("rate limit") || msg.includes("insufficient")) {
+              setCreditAlert(event.message);
+            }
             handleRuntimeAuthError(event.message);
+            setLastError("");
           }
         } catch (err) {
           console.error("Failed to parse WebSocket message:", err, message.data);
@@ -187,10 +193,9 @@ export default function AIAgentsShowcase() {
       };
 
       socket.onerror = () => {
-        console.error("[WebSocket] Connection error — backend unreachable at", WS_BASE);
+        console.warn("[WebSocket] Connection error — backend unreachable at", WS_BASE);
         setBackendConnected(false);
         setStatus("failed");
-        setLastError(`Unable to reach backend at ${API_BASE}. Start FastAPI and try again.`);
         appendLog(nowLine(`Runtime connection failed. Backend expected at ${API_BASE}.`));
       };
 
@@ -211,6 +216,7 @@ export default function AIAgentsShowcase() {
       setProgress(0);
       setResults(null);
       setLastError("");
+      setCreditAlert("");
       setLogs([nowLine(`${AGENT_CONFIGS[agentId].title} workspace opened.`)]);
 
       if (!loadCredentials()) {
@@ -231,6 +237,10 @@ export default function AIAgentsShowcase() {
     },
     [pendingAgent, selectedAgent]
   );
+
+  const handleDismissCreditAlert = useCallback(() => {
+    setCreditAlert("");
+  }, []);
 
   const handleDeleteKey = useCallback(() => {
     clearCredentials();
@@ -321,6 +331,8 @@ export default function AIAgentsShowcase() {
                 providerStatus={providerStatus}
                 backendConnected={backendConnected}
                 lastError={lastError}
+                creditAlert={creditAlert}
+                onDismissCreditAlert={handleDismissCreditAlert}
                 onOpenSettings={() => setActiveModal("settings")}
               />
               {(status === "completed" || status === "failed") && selectedAgent && (

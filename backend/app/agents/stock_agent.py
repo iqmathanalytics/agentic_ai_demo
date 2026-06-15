@@ -343,6 +343,10 @@ Set the confidence score from the pre-computed recommendation."""
             result.valuation["Current Price"] = current_price
         if market_cap is not None:
             result.valuation["Market Cap"] = market_cap
+        # Inject chart data from market data
+        chart_data = market.get("chartData") or []
+        if chart_data:
+            result.chartData = chart_data
 
         await _emit_agent_end("decision", "Investment Decision Agent", 98)
         return {"structured_data": result}

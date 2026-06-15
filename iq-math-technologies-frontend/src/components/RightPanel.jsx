@@ -1,5 +1,6 @@
 import { motion } from "framer-motion";
 import ReactMarkdown from "react-markdown";
+import { useState, useMemo } from "react";
 import {
   Area,
   AreaChart,
@@ -8,6 +9,7 @@ import {
   Tooltip,
   XAxis,
   YAxis,
+  Brush,
 } from "recharts";
 import { AGENT_CONFIGS } from "./agentsData";
 
@@ -170,6 +172,18 @@ function StockResults({ data }) {
   const bearishFactors = data.bearishFactors || [];
   const latestNews = data.latestNews || [];
   const chartData = data.chartData || [];
+  const [chartRange, setChartRange] = useState("5Y");
+  const filteredChartData = useMemo(() => {
+    if (!chartData.length) return [];
+    const now = new Date(chartData[chartData.length - 1].time);
+    const ranges = {
+      "1M": 30, "6M": 180, "1Y": 365, "5Y": 1825, "MAX": 99999
+    };
+    const days = ranges[chartRange] || 1825;
+    const cutoff = new Date(now);
+    cutoff.setDate(cutoff.getDate() - days);
+    return chartData.filter(d => new Date(d.time) >= cutoff);
+  }, [chartData, chartRange]);
 
   const currentPrice = valuation["Current Price"];
   const marketCap = valuation["Market Cap"];
@@ -334,9 +348,26 @@ function StockResults({ data }) {
 
       {chartData.length > 0 && (
         <div className="rounded-2xl bg-[#0B0F19] border border-white/5 p-6">
-          <div className="text-[10px] text-slate-500 uppercase tracking-widest mb-5 font-black">Price Chart</div>
+          <div className="flex items-center justify-between mb-5">
+            <div className="text-[10px] text-slate-500 uppercase tracking-widest font-black">Price Chart</div>
+            <div className="flex gap-1">
+              {["1M", "6M", "1Y", "5Y", "MAX"].map((r) => (
+                <button
+                  key={r}
+                  onClick={() => setChartRange(r)}
+                  className={`px-2.5 py-1 text-[10px] font-bold rounded-md transition-all ${
+                    chartRange === r
+                      ? "bg-cyan-500/20 text-cyan-400 border border-cyan-500/30"
+                      : "text-slate-500 hover:text-slate-300 border border-transparent"
+                  }`}
+                >
+                  {r}
+                </button>
+              ))}
+            </div>
+          </div>
           <ResponsiveContainer width="100%" height={300}>
-            <AreaChart data={chartData}>
+            <AreaChart data={filteredChartData}>
               <defs>
                 <linearGradient id="colorValue" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="5%" stopColor="#22D3EE" stopOpacity={0.3} />
@@ -348,6 +379,7 @@ function StockResults({ data }) {
               <YAxis tick={{ fontSize: 10, fill: "#64748B" }} axisLine={false} tickLine={false} domain={["auto", "auto"]} />
               <Tooltip content={<CustomTooltip />} />
               <Area type="monotone" dataKey="value" stroke="#22D3EE" strokeWidth={2} fill="url(#colorValue)" />
+              <Brush dataKey="time" height={30} stroke="#22D3EE" fill="#0B0F19" travellerWidth={10} />
             </AreaChart>
           </ResponsiveContainer>
         </div>
@@ -717,6 +749,8 @@ export default function RightPanel({
   providerStatus,
   backendConnected,
   lastError,
+  creditAlert,
+  onDismissCreditAlert,
   onOpenSettings,
 }) {
   const config = agentId ? AGENT_CONFIGS[agentId] : null;
@@ -766,17 +800,23 @@ export default function RightPanel({
         <ProgressBar progress={progress} />
       </div>
 
-      {lastError && (
-        <motion.div 
-          initial={{ opacity: 0, scale: 0.95 }}
-          animate={{ opacity: 1, scale: 1 }}
-          className="mb-8 rounded-2xl border border-rose-500/20 bg-rose-500/5 p-5 text-xs text-rose-300 flex items-start gap-3"
+      {creditAlert && (
+        <motion.div
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="mb-6 rounded-2xl border border-amber-500/20 bg-amber-500/5 p-4 flex items-start gap-3"
         >
-          <span className="text-lg">🚨</span>
-          <div>
-            <div className="font-bold mb-1 uppercase tracking-wider text-[10px]">Execution Interrupted</div>
-            {lastError}
+          <span className="text-amber-400 text-lg leading-none mt-0.5">⚡</span>
+          <div className="flex-1">
+            <div className="text-[10px] text-amber-400 uppercase tracking-widest font-bold mb-1">API Credit Limit</div>
+            <p className="text-xs text-amber-200/70 leading-relaxed">{creditAlert}</p>
           </div>
+          <button
+            onClick={onDismissCreditAlert}
+            className="text-slate-600 hover:text-slate-400 text-sm leading-none"
+          >
+            ✕
+          </button>
         </motion.div>
       )}
 

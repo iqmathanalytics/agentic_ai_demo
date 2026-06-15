@@ -27,7 +27,8 @@ _USER_402_MESSAGE = (
 
 def _friendly_error(exc: Exception) -> str:
     exc_str = str(exc)
-    if "402" in exc_str or "insufficient credits" in exc_str.lower() or "max_tokens" in exc_str.lower():
+    exc_lower = exc_str.lower()
+    if any(k in exc_lower for k in ["402", "insufficient credit", "max_tokens", "rate limit", "quota", "insufficient balance"]):
         logger.warning("402/credit error caught in websocket handler: %s", exc_str)
         return _USER_402_MESSAGE
     return exc_str

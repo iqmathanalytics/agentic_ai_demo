@@ -58,5 +58,6 @@ class EquityReport(BaseModel):
     analystRatings: dict = Field(description="Buy/Hold/Sell counts, Consensus, Target Price")
     recommendation: dict = Field(description="Action (BUY/HOLD/SELL), Confidence (0-100), Reasoning")
     outlook12Month: dict = Field(description="Base/Bull/Bear scenarios")
+    chartData: list = Field(default_factory=list, description="Time-series price chart data")
     report: str = Field(description="The full detailed markdown report")
 

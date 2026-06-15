@@ -58,22 +58,35 @@ def search_latest_news(company_name: str) -> str:
     query = f"{company_name} latest news, earnings report, analyst rating"
     return perform_search(query, search_type="news")
 
-def _get_yfinance_data(ticker: str) -> dict:
+def _get_yfinance_data(ticker: str, period: str = "1y") -> dict:
     try:
         import yfinance as yf
         t = yf.Ticker(ticker)
-        history = t.history(period="1y")
+        history = t.history(period=period)
         info = t.info
         return {"history": history, "info": info}
     except Exception as e:
         logger.error(f"yfinance error for {ticker}: {e}")
         return None
 
+def _build_chart_data(ticker: str) -> list:
+    data = _get_yfinance_data(ticker, period="5y")
+    if not data or data["history"].empty:
+        return []
+    history = data["history"]
+    chart = []
+    for index, row in history.iterrows():
+        chart.append({
+            "time": str(index.date()),
+            "value": round(float(row["Close"]), 2)
+        })
+    return chart
+
 from .market_data import collect_market_data
 
 @tool
 def get_market_metrics(symbol: str, exchange: str) -> str:
-    """Fetches real-time market data including Price, Market Cap, Enterprise Value, Revenue, EPS, EBITDA, PE Ratio, Forward PE, PEG, Dividend Yield, Beta, 52W High/Low, Avg Volume.
+    """Fetches real-time market data including Price, Market Cap, Enterprise Value, Revenue, EPS, EBITDA, PE Ratio, Forward PE, PEG, Dividend Yield, Beta, 52W High/Low, Avg Volume, and 5-year chart data.
     Uses Finnhub -> Alpha Vantage -> Yahoo Finance.
     """
     logger.info(f"Fetching market metrics for {symbol} on {exchange}")
@@ -113,7 +126,8 @@ def get_market_metrics(symbol: str, exchange: str) -> str:
         "52 Week High": info.get("fiftyTwoWeekHigh"),
         "52 Week Low": info.get("fiftyTwoWeekLow"),
         "Average Volume": info.get("averageVolume") or fallback_data.get("volume"),
-        "Source": "yfinance"
+        "Source": "yfinance",
+        "chartData": _build_chart_data(ticker)
     }
     return metrics
 
