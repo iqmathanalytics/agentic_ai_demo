@@ -7,7 +7,7 @@ from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 from langgraph.graph import END, StateGraph
 from pydantic import BaseModel, Field
 
-from app.models.schemas import AgentEvent, AgentRunRequest, EquityReport
+from app.models.schemas import AgentEvent, AgentRunRequest, EquityReport, Recommendation
 from app.services.llm_factory import create_chat_model
 from app.utils.events import SendEvent, emit
 
@@ -258,8 +258,14 @@ Use the resolve_ticker tool."""
                 return json.dumps(d, indent=2, default=str)
             return str(d)
 
-        prompt = f"""You are the Investment Decision Agent.
-Compile a comprehensive equity research report using the gathered data.
+        prompt = f"""You are a professional equity research analyst.
+
+Analyze the provided stock metrics and generate an investment recommendation.
+
+Rules:
+* Recommendation must be one of: BUY, HOLD, SELL
+* Never return INSUFFICIENT_DATA
+* Keep reasoning concise
 
 Company Info:
 {comp}
@@ -282,7 +288,7 @@ Risk Analysis:
 Analyst Consensus:
 {json.dumps(analyst, indent=2)}
 
-Quantitative Analysis (Pre-computed):
+Quantitative Analysis:
 {_fmt_quant(quant.get("fundamentalScore", {}))}
 
 Fair Value Estimate:
@@ -300,10 +306,12 @@ Pre-computed Recommendation:
 Peer Companies:
 {json.dumps(quant.get("peers", []), indent=2)}
 
-Generate a complete structured equity research report with all required fields.
-Use the pre-computed recommendation as the primary basis for the recommendation field.
-Use the pre-computed bullish and bearish factors as the primary basis for those fields.
-Set the confidence score from the pre-computed recommendation."""
+Guidelines:
+BUY: Strong fundamentals, Positive earnings growth, Significant upside to target price
+HOLD: Mixed fundamentals, Fair valuation, Limited upside
+SELL: Weak fundamentals, Significant downside risk, Poor growth outlook
+
+Generate a complete structured equity research report. Use the pre-computed recommendation as the primary basis."""
 
         try:
             structured_llm = llm.with_structured_output(EquityReport)
@@ -318,22 +326,25 @@ Set the confidence score from the pre-computed recommendation."""
             logger.error("=== DECISION NODE: Structured output failed ===")
             logger.error(f"Error: {e}", exc_info=True)
 
+            user_friendly_comp = comp if len(comp) < 500 else comp[:500] + "..."
+            user_friendly_news = news if len(news) < 300 else news[:300] + "..."
             result = EquityReport(
-                companyOverview=comp,
-                latestNews=[],
-                valuation=dict(market),
-                fundamentals=dict(fund),
-                bullishFactors=[],
-                bearishFactors=[],
-                riskAnalysis=dict(risk),
-                analystRatings=dict(analyst),
-                recommendation={
-                    "action": "INSUFFICIENT DATA",
-                    "confidence": 0,
-                    "reasoning": f"Analysis could not be completed. Error: {str(e)}"
-                },
+                companyOverview=user_friendly_comp if user_friendly_comp != "Data Not Available" else "Company data could not be retrieved at this time.",
+                latestNews=[user_friendly_news] if user_friendly_news != "Data Not Available" else [],
+                valuation=dict(market) if dict(market) else {"Assessment": "Data unavailable"},
+                fundamentals=dict(fund) if dict(fund) else {},
+                bullishFactors=quant.get("bullishFactors", [])[:2] if isinstance(quant, dict) else [],
+                bearishFactors=quant.get("bearishFactors", [])[:2] if isinstance(quant, dict) else [],
+                riskAnalysis=dict(risk) if dict(risk) else {},
+                analystRatings=dict(analyst) if dict(analyst) else {},
+                recommendation=Recommendation(
+                    recommendation="HOLD",
+                    confidence=0,
+                    reason1="Analysis could not be completed due to a temporary issue",
+                    reason2="Please try again with a different model provider or check your API limits"
+                ),
                 outlook12Month={},
-                report=f"# Analysis Incomplete\n\n**Error:** {str(e)}\n\n## Available Data\n\n{comp}\n\n{news}"
+                report="# Analysis In Progress\n\nThe automated analysis encountered a temporary issue with the AI provider. Please try again with a different model or check your API key limits."
             )
 
         # Ensure Current Price and Market Cap from raw market data are in valuation

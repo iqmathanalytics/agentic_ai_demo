@@ -373,46 +373,53 @@ def investment_recommendation(score_data: dict, fair_value_data: dict, analyst_d
 
     upside_str = f"{upside:.1f}%" if upside is not None else "N/A"
 
+    # Default values
+    action = "HOLD"
+    reason1 = ""
+    reason2 = ""
+
     if score >= 70 and upside is not None and upside > 5:
         action = "BUY"
         confidence_score = calculate_confidence({"targetMeanPrice": 1, "targetHighPrice": 2,
                                                   "targetLowPrice": 0.5, "averageVolume": 2000000,
                                                   "currentPrice": 1}, score_data)
-        if analyst_bullish:
-            reasoning = f"Strong fundamentals ({rating}, {score:.1f}/100) with {upside_str} upside potential. Analyst consensus supports bullish view."
-        else:
-            reasoning = f"Strong fundamentals ({rating}, {score:.1f}/100) with {upside_str} upside potential. Valuation gap supports accumulation."
+        reason1 = f"Strong fundamentals ({rating}, {score:.1f}/100) with positive earnings growth"
+        reason2 = f"Significant upside of {upside_str} to target price"
     elif score >= 55 and upside is not None and upside > 0:
         action = "BUY"
         confidence_score = calculate_confidence({"targetMeanPrice": 1, "targetHighPrice": 1.5,
                                                   "targetLowPrice": 0.8, "averageVolume": 1000000,
                                                   "currentPrice": 1}, score_data)
-        reasoning = f"Average-to-strong fundamentals ({rating}, {score:.1f}/100) with modest upside of {upside_str}. Position for gradual accumulation."
+        reason1 = f"Average-to-strong fundamentals ({rating}, {score:.1f}/100)"
+        reason2 = f"Modest upside potential of {upside_str} supports accumulation"
     elif upside is not None and upside > -10 and score >= 40:
         action = "HOLD"
         confidence_score = calculate_confidence(info={"averageVolume": 500000, "currentPrice": 1}, score_data=score_data)
-        reasoning = f"Mixed fundamentals ({rating}, {score:.1f}/100) with limited upside of {upside_str}. Hold existing positions and monitor."
+        reason1 = f"Mixed fundamentals ({rating}, {score:.1f}/100) with fair valuation"
+        reason2 = f"Limited upside of {upside_str}, monitor for better entry"
     elif upside is not None and upside <= -10:
         action = "SELL"
         confidence_score = calculate_confidence(info={"averageVolume": 500000, "currentPrice": 1}, score_data=score_data)
-        reasoning = f"Weak upside ({upside_str}) despite {rating.lower()} fundamentals ({score:.1f}/100). Reduce exposure."
+        reason1 = f"Weak fundamentals ({rating}, {score:.1f}/100) with poor growth outlook"
+        reason2 = f"Significant downside risk of {upside_str} suggests reducing exposure"
     else:
         action = "HOLD"
         confidence_score = calculate_confidence(info={"averageVolume": 500000, "currentPrice": 1}, score_data=score_data)
-        reasoning = f"{rating} fundamentals ({score:.1f}/100) but insufficient valuation data for directional call. Hold for more clarity."
+        reason1 = f"{rating} fundamentals ({score:.1f}/100) with limited catalyst visibility"
+        reason2 = "Insufficient valuation data for directional call; hold for more clarity"
 
     if analyst_data and analyst_data.get("Consensus Rating"):
-        consensus = analyst_data["Consensus Rating"]
         divergence = 0 if analyst_bullish and action == "BUY" else (20 if analyst_bullish else 10)
         confidence_score = max(confidence_score - divergence, 0)
 
     return {
-        "action": action,
+        "recommendation": action,
         "confidence": confidence_score,
         "score": score,
         "upside": upside,
         "rating": rating,
-        "reasoning": reasoning
+        "reason1": reason1,
+        "reason2": reason2
     }
 
 

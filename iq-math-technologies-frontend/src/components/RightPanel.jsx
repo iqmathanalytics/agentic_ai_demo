@@ -189,7 +189,7 @@ function StockResults({ data }) {
   const marketCap = valuation["Market Cap"];
   const targetPrice = analystRatings["Target Mean Price"];
   const consensusRating = analystRatings["Consensus Rating"];
-  const recAction = recommendation.action || recommendation.rating;
+  const recAction = recommendation.recommendation || recommendation.rating;
   const recConfidence = recommendation.confidence;
 
   const metricCards = [];
@@ -290,6 +290,37 @@ function StockResults({ data }) {
           {metricCards.map((card) => (
             <MetricCard key={card.key} {...card} />
           ))}
+        </div>
+      )}
+
+      {hasValue(recommendation.reason1) && (
+        <div className="rounded-2xl bg-gradient-to-br from-indigo-600/10 via-purple-600/5 to-transparent border border-indigo-500/20 p-6">
+          <div className="text-[10px] text-indigo-400 uppercase tracking-widest mb-4 font-black flex items-center gap-3">
+            <span className="w-2 h-2 rounded-full bg-indigo-400" />
+            Key Takeaways
+          </div>
+          <div className="space-y-3">
+            {hasValue(recommendation.reason1) && (
+              <div className="flex items-start gap-3">
+                <span className={`mt-0.5 text-sm shrink-0 ${
+                  recAction === "BUY" ? "text-emerald-400" : recAction === "SELL" ? "text-rose-400" : "text-amber-400"
+                }`}>
+                  {recAction === "BUY" ? "▲" : recAction === "SELL" ? "▼" : "◆"}
+                </span>
+                <span className="text-[13px] text-slate-300 leading-relaxed">{recommendation.reason1}</span>
+              </div>
+            )}
+            {hasValue(recommendation.reason2) && (
+              <div className="flex items-start gap-3">
+                <span className={`mt-0.5 text-sm shrink-0 ${
+                  recAction === "BUY" ? "text-emerald-400" : recAction === "SELL" ? "text-rose-400" : "text-amber-400"
+                }`}>
+                  {recAction === "BUY" ? "▲" : recAction === "SELL" ? "▼" : "◆"}
+                </span>
+                <span className="text-[13px] text-slate-300 leading-relaxed">{recommendation.reason2}</span>
+              </div>
+            )}
+          </div>
         </div>
       )}
 

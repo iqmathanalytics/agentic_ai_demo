@@ -47,6 +47,13 @@ class AgentEvent(BaseModel):
     payload: dict[str, Any] = Field(default_factory=dict)
 
 
+class Recommendation(BaseModel):
+    recommendation: str = Field(description="One of: BUY, HOLD, SELL")
+    confidence: float = Field(description="Confidence score 0-100")
+    reason1: str = Field(description="Primary reason for the recommendation")
+    reason2: str = Field(description="Secondary reason for the recommendation")
+
+
 class EquityReport(BaseModel):
     companyOverview: str = Field(description="Executive summary of business")
     latestNews: List[str] = Field(description="List of most important developments")
@@ -56,7 +63,7 @@ class EquityReport(BaseModel):
     bearishFactors: List[str] = Field(description="List of negative risks")
     riskAnalysis: dict = Field(description="Market Risk, Financial Risk, Business Risk scores")
     analystRatings: dict = Field(description="Buy/Hold/Sell counts, Consensus, Target Price")
-    recommendation: dict = Field(description="Action (BUY/HOLD/SELL), Confidence (0-100), Reasoning")
+    recommendation: Recommendation = Field(description="Action (BUY/HOLD/SELL), Confidence (0-100), Two concise reasons")
     outlook12Month: dict = Field(description="Base/Bull/Bear scenarios")
     chartData: list = Field(default_factory=list, description="Time-series price chart data")
     report: str = Field(description="The full detailed markdown report")
