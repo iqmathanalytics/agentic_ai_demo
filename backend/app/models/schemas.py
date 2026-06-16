@@ -67,4 +67,6 @@ class EquityReport(BaseModel):
     outlook12Month: dict = Field(description="Base/Bull/Bear scenarios")
     chartData: list = Field(default_factory=list, description="Time-series price chart data")
     report: str = Field(description="The full detailed markdown report")
+    currentPrice: float | None = Field(None, description="Current stock price")
+    marketCap: float | None = Field(None, description="Market capitalization")
 

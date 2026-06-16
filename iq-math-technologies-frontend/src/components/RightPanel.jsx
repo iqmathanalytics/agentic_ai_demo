@@ -185,8 +185,8 @@ function StockResults({ data }) {
     return chartData.filter(d => new Date(d.time) >= cutoff);
   }, [chartData, chartRange]);
 
-  const currentPrice = valuation["Current Price"];
-  const marketCap = valuation["Market Cap"];
+  const currentPrice = data.currentPrice ?? valuation["Current Price"] ?? valuation["currentPrice"];
+  const marketCap = data.marketCap ?? valuation["Market Cap"] ?? valuation["marketCap"];
   const targetPrice = analystRatings["Target Mean Price"];
   const consensusRating = analystRatings["Consensus Rating"];
   const recAction = recommendation.recommendation || recommendation.rating;
@@ -221,7 +221,15 @@ function StockResults({ data }) {
       value: (
         <>
           <div className="text-3xl font-black text-white tracking-tighter">{recAction}</div>
-          {hasValue(recConfidence) && <div className="text-[11px] text-slate-500 mt-2">Confidence: {recConfidence}%</div>}
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-2">
+            {hasValue(recConfidence) && <div className="text-[11px] text-slate-500 font-medium">Confidence: {recConfidence}%</div>}
+            {hasValue(currentPrice) && currentPrice > 0 && (
+              <div className="text-[11px] text-cyan-400 font-bold">{formatValue(currentPrice, "currency")}</div>
+            )}
+            {hasValue(marketCap) && (
+              <div className="text-[11px] text-sky-400 font-bold">{formatValue(marketCap)}</div>
+            )}
+          </div>
         </>
       ),
       className: "bg-gradient-to-br from-emerald-600/10 via-teal-600/5 to-transparent border-emerald-500/20",
@@ -297,7 +305,7 @@ function StockResults({ data }) {
         <div className="rounded-2xl bg-gradient-to-br from-indigo-600/10 via-purple-600/5 to-transparent border border-indigo-500/20 p-6">
           <div className="text-[10px] text-indigo-400 uppercase tracking-widest mb-4 font-black flex items-center gap-3">
             <span className="w-2 h-2 rounded-full bg-indigo-400" />
-            Key Takeaways
+            REASON FOR RECOMMENDATION
           </div>
           <div className="space-y-3">
             {hasValue(recommendation.reason1) && (
@@ -551,13 +559,13 @@ function ResumeResults({ data }) {
 function ResultList({ title, items = [], tone, marker }) {
   if (!items.length) return null;
   return (
-    <div className="p-6 rounded-2xl bg-white/[0.02] border border-white/5 hover:border-white/10 transition-colors">
+    <div className="p-6 rounded-2xl bg-white/[0.02] border border-white/5 hover:border-white/10 transition-colors h-full flex flex-col">
       <div className="text-[10px] text-slate-500 uppercase tracking-widest mb-5 font-black">{title}</div>
-      <div className="space-y-4">
+      <div className="space-y-4 flex-1">
         {items.map((item, index) => (
           <div key={`${item}-${index}`} className="flex items-start gap-4">
-            <span className={`mt-0.5 text-base leading-none ${tone}`}>{marker}</span>
-            <span className="text-[13px] text-slate-300 leading-relaxed opacity-90">{item}</span>
+            <span className={`mt-0.5 text-base leading-none shrink-0 ${tone}`}>{marker}</span>
+            <span className="text-[13px] text-slate-300 leading-relaxed opacity-90 break-words">{item}</span>
           </div>
         ))}
       </div>

@@ -38,7 +38,7 @@ def _fetch_yahoo(symbol: str, exchange: str) -> dict[str, Any] | None:
 
     try:
         yf_ticker = yf.Ticker(ticker)
-        history = yf_ticker.history(period="6mo", interval="1d")
+        history = yf_ticker.history(period="5y", interval="1d")
         info = yf_ticker.info or {}
         news_raw = getattr(yf_ticker, "news", [])
 
@@ -63,7 +63,7 @@ def _fetch_yahoo(symbol: str, exchange: str) -> dict[str, Any] | None:
 
         chart_data = [
             {"time": str(index.date()), "value": round(float(row["Close"]), 2)}
-            for index, row in history.tail(30).iterrows()
+            for index, row in history.iterrows()
         ]
 
         volume = int(history["Volume"].tail(1).iloc[0])
@@ -127,7 +127,7 @@ def _fetch_alpha_vantage(symbol: str, exchange: str) -> dict[str, Any] | None:
         params = {
             "function": "TIME_SERIES_DAILY",
             "symbol": clean,
-            "outputsize": "compact",
+            "outputsize": "full",
             "apikey": api_key,
         }
         resp = httpx.get(url, params=params, timeout=30)
@@ -146,7 +146,7 @@ def _fetch_alpha_vantage(symbol: str, exchange: str) -> dict[str, Any] | None:
             logger.warning("[Alpha Vantage] No 'Time Series (Daily)' in response")
             return None
 
-        dates = sorted(time_series.keys(), reverse=True)[:60]
+        dates = sorted(time_series.keys(), reverse=True)
         logger.info("[Alpha Vantage] Got %d days of data for %s", len(dates), clean)
 
         closes = []
@@ -154,8 +154,7 @@ def _fetch_alpha_vantage(symbol: str, exchange: str) -> dict[str, Any] | None:
         for dt in dates:
             close_val = float(time_series[dt]["4. close"])
             closes.append(close_val)
-            if len(chart_data) < 30:
-                chart_data.append({"time": dt, "value": round(close_val, 2)})
+            chart_data.append({"time": dt, "value": round(close_val, 2)})
 
         chart_data.reverse()
         latest = closes[0]

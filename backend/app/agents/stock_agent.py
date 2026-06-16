@@ -231,36 +231,49 @@ Use the resolve_ticker tool."""
     async def decision_node(state: EquityResearchState):
         await _emit_agent_start("decision", "Investment Decision Agent", 90)
 
-        def _fmt(val, default="Data Not Available"):
+        def _fmt(val, default="Data Not Available", max_len=1500):
             if val is None or val == "None":
                 return default
             if isinstance(val, dict):
                 if not val or "error" in val:
                     return default
-                return json.dumps(val, indent=2)
+                s = json.dumps(val, indent=2)
+                return s[:max_len] + "\n...(truncated)" if len(s) > max_len else s
             if isinstance(val, list):
                 if not val:
                     return default
-                return json.dumps(val, indent=2)
-            return str(val)
+                s = json.dumps(val, indent=2)
+                return s[:max_len] + "\n...(truncated)" if len(s) > max_len else s
+            s = str(val)
+            return s[:max_len] + "\n...(truncated)" if len(s) > max_len else s
 
         comp = _fmt(state.get('company_report'))
         news = _fmt(state.get('news_report'))
-        market = state.get('market_data', {}) or {}
+        market_raw = state.get('market_data', {}) or {}
+        # Limit chartData to max 30 days (1 month) to save tokens but still provide recent trend
+        market = dict(market_raw)
+        if 'chartData' in market and isinstance(market['chartData'], list):
+            market['chartData'] = market['chartData'][-30:]
+            
         fund = state.get('fundamental_data', {}) or {}
         val = state.get('valuation_data', {}) or {}
         risk = state.get('risk_data', {}) or {}
         analyst = state.get('analyst_data', {}) or {}
-        quant = state.get('quantitative_data', {}) or {}
+        quant_raw = state.get('quantitative_data', {}) or {}
+        quant = dict(quant_raw)
+        if "peers" in quant and isinstance(quant["peers"], list):
+            quant["peers"] = quant["peers"][:3]
 
-        def _fmt_quant(d):
+        def _fmt_quant(d, max_len=1500):
             if isinstance(d, dict):
-                return json.dumps(d, indent=2, default=str)
-            return str(d)
+                s = json.dumps(d, indent=2, default=str)
+                return s[:max_len] + "\n...(truncated)" if len(s) > max_len else s
+            s = str(d)
+            return s[:max_len] + "\n...(truncated)" if len(s) > max_len else s
 
         prompt = f"""You are a professional equity research analyst.
 
-Analyze the provided stock metrics and generate an investment recommendation.
+Analyze the provided stock metrics and generate an investment recommendation with the help of past one month data.
 
 Rules:
 * Recommendation must be one of: BUY, HOLD, SELL
@@ -273,7 +286,7 @@ Company Info:
 News:
 {news}
 
-Market Metrics:
+Market Metrics (Includes 1-Month Price Data):
 {json.dumps(market, indent=2)}
 
 Fundamentals:
@@ -311,7 +324,7 @@ BUY: Strong fundamentals, Positive earnings growth, Significant upside to target
 HOLD: Mixed fundamentals, Fair valuation, Limited upside
 SELL: Weak fundamentals, Significant downside risk, Poor growth outlook
 
-Generate a complete structured equity research report. Use the pre-computed recommendation as the primary basis."""
+Generate a complete structured equity research report. Use the pre-computed recommendation as the primary basis. Ensure you explicitly state the Current Price and Market Cap in your detailed report near your final recommendation."""
 
         try:
             structured_llm = llm.with_structured_output(EquityReport)
@@ -347,15 +360,19 @@ Generate a complete structured equity research report. Use the pre-computed reco
                 report="# Analysis In Progress\n\nThe automated analysis encountered a temporary issue with the AI provider. Please try again with a different model or check your API key limits."
             )
 
-        # Ensure Current Price and Market Cap from raw market data are in valuation
-        current_price = market.get("Current Price")
-        market_cap = market.get("Market Cap")
-        if current_price is not None:
-            result.valuation["Current Price"] = current_price
-        if market_cap is not None:
-            result.valuation["Market Cap"] = market_cap
+        # Ensure Current Price and Market Cap from raw market data are in valuation and top-level fields
+        current_price_val = market.get("Current Price")
+        market_cap_val = market.get("Market Cap")
+        
+        if current_price_val is not None:
+            result.valuation["Current Price"] = current_price_val
+            result.currentPrice = float(current_price_val) if isinstance(current_price_val, (int, float)) else None
+        if market_cap_val is not None:
+            result.valuation["Market Cap"] = market_cap_val
+            result.marketCap = float(market_cap_val) if isinstance(market_cap_val, (int, float)) else None
+            
         # Inject chart data from market data
-        chart_data = market.get("chartData") or []
+        chart_data = market_raw.get("chartData") or []
         if chart_data:
             result.chartData = chart_data
 
@@ -440,6 +457,19 @@ Generate a complete structured equity research report. Use the pre-computed reco
                 "report": "Report generation failed.",
                 "chartData": []
             }
+
+        import math
+        def clean_floats(obj):
+            if isinstance(obj, dict):
+                return {k: clean_floats(v) for k, v in obj.items()}
+            elif isinstance(obj, list):
+                return [clean_floats(v) for v in obj]
+            elif isinstance(obj, float):
+                if math.isnan(obj) or math.isinf(obj):
+                    return None
+            return obj
+
+        report_data = clean_floats(report_data)
 
         logger.info("FINAL RESPONSE")
         logger.info(json.dumps(report_data, indent=2))
