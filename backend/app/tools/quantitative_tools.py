@@ -383,30 +383,30 @@ def investment_recommendation(score_data: dict, fair_value_data: dict, analyst_d
         confidence_score = calculate_confidence({"targetMeanPrice": 1, "targetHighPrice": 2,
                                                   "targetLowPrice": 0.5, "averageVolume": 2000000,
                                                   "currentPrice": 1}, score_data)
-        reason1 = f"Strong fundamentals ({rating}, {score:.1f}/100) with positive earnings growth"
-        reason2 = f"Significant upside of {upside_str} to target price"
+        reason1 = f"The business looks financially strong ({rating}, {score:.0f}/100 score)."
+        reason2 = f"The stock appears undervalued with about {upside_str} upside to fair value."
     elif score >= 55 and upside is not None and upside > 0:
         action = "BUY"
         confidence_score = calculate_confidence({"targetMeanPrice": 1, "targetHighPrice": 1.5,
                                                   "targetLowPrice": 0.8, "averageVolume": 1000000,
                                                   "currentPrice": 1}, score_data)
-        reason1 = f"Average-to-strong fundamentals ({rating}, {score:.1f}/100)"
-        reason2 = f"Modest upside potential of {upside_str} supports accumulation"
+        reason1 = f"Fundamentals are solid ({rating}, {score:.0f}/100) with room to grow."
+        reason2 = f"Modest upside of {upside_str} makes this a reasonable entry for long-term holders."
     elif upside is not None and upside > -10 and score >= 40:
         action = "HOLD"
         confidence_score = calculate_confidence(info={"averageVolume": 500000, "currentPrice": 1}, score_data=score_data)
-        reason1 = f"Mixed fundamentals ({rating}, {score:.1f}/100) with fair valuation"
-        reason2 = f"Limited upside of {upside_str}, monitor for better entry"
+        reason1 = f"Results are mixed ({rating}, {score:.0f}/100) — neither strongly cheap nor expensive."
+        reason2 = f"With only {upside_str} upside, wait for a better price or clearer catalyst."
     elif upside is not None and upside <= -10:
         action = "SELL"
         confidence_score = calculate_confidence(info={"averageVolume": 500000, "currentPrice": 1}, score_data=score_data)
-        reason1 = f"Weak fundamentals ({rating}, {score:.1f}/100) with poor growth outlook"
-        reason2 = f"Significant downside risk of {upside_str} suggests reducing exposure"
+        reason1 = f"Fundamentals are weak ({rating}, {score:.0f}/100) and growth looks limited."
+        reason2 = f"The stock may be overpriced with {upside_str} downside vs fair value — consider reducing exposure."
     else:
         action = "HOLD"
         confidence_score = calculate_confidence(info={"averageVolume": 500000, "currentPrice": 1}, score_data=score_data)
-        reason1 = f"{rating} fundamentals ({score:.1f}/100) with limited catalyst visibility"
-        reason2 = "Insufficient valuation data for directional call; hold for more clarity"
+        reason1 = f"Not enough clear signals ({rating}, {score:.0f}/100) to call a strong move."
+        reason2 = "Hold and watch for better data before making a bigger decision."
 
     if analyst_data and analyst_data.get("Consensus Rating"):
         divergence = 0 if analyst_bullish and action == "BUY" else (20 if analyst_bullish else 10)
@@ -579,6 +579,7 @@ def build_analysis_context(symbol: str, exchange: str) -> dict:
         "companyName": info.get("shortName") or info.get("longName") or symbol,
         "sector": info.get("sector"),
         "industry": info.get("industry"),
+        "dataSources": ["Yahoo Finance"],
         "marketMetrics": {
             "currentPrice": current_price,
             "marketCap": market_cap,

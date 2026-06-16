@@ -44,7 +44,7 @@ async def run_website_audit_agent(request: AgentRunRequest, send: SendEvent) -> 
     await emit(send, "agent_started", "Fetching website...", 15,
                agent_id="fetcher", agent_name="Fetcher Agent", status="running")
 
-    from app.tools.website_audit_tools import fetch_website
+    from app.tools.website_audit_tools import fetch_website, fetch_rendered_html, looks_like_spa_shell
     fetch_result = await fetch_website(target_url)
     if not fetch_result["success"]:
         await emit(send, "agent_failed", f"Fetch failed: {fetch_result['error']}", 25,
@@ -55,6 +55,19 @@ async def run_website_audit_agent(request: AgentRunRequest, send: SendEvent) -> 
             progress=100, payload={"result": error_result},
         ))
         return error_result
+
+    # If the HTML looks like a JS shell (common with React/Vite), attempt a best-effort rendered fetch.
+    rendered_attempted = False
+    if looks_like_spa_shell(fetch_result.get("html", "")):
+        await emit(send, "agent_running", "Detected SPA shell — attempting rendered HTML fetch...", 23,
+                   agent_id="fetcher", agent_name="Fetcher Agent", status="running")
+        rendered = await fetch_rendered_html(target_url)
+        rendered_attempted = True
+        if rendered.get("success"):
+            fetch_result["html"] = rendered["html"]
+            fetch_result["rendered"] = True
+        else:
+            fetch_result["render_error"] = rendered.get("error")
 
     await emit(send, "agent_completed", f"Website fetched ({len(fetch_result['html'])} bytes).", 25,
                agent_id="fetcher", agent_name="Fetcher Agent", status="completed")
@@ -128,6 +141,9 @@ async def run_website_audit_agent(request: AgentRunRequest, send: SendEvent) -> 
     overall_seo = round((seo_score + bp_score) / 2)
     issues = generate_issues(parsed)
     suggestions = generate_suggestions(parsed)
+    if rendered_attempted and not fetch_result.get("rendered"):
+        issues.insert(0, "Page appears to be JavaScript-rendered (SPA). Rendered HTML capture was unavailable, so analysis may miss headings/content.")
+        suggestions.insert(0, "Enable JS-rendered audits: configure FIRECRAWL_API_KEY (recommended) or install Playwright browsers (playwright install chromium).")
 
     result = {
         "url": target_url,

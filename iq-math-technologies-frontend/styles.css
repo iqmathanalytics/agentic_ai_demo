@@ -3,17 +3,17 @@
 @tailwind utilities;
 
 :root {
-  --ink: #152126;
-  --muted: #5d6972;
-  --line: #dbe3e6;
+  --ink: #1a0a0e;
+  --muted: #6b5a60;
+  --line: #eadde1;
   --paper: #ffffff;
-  --soft: #f3f8f7;
-  --deep: #081417;
-  --green: #18a678;
-  --green-dark: #0f7458;
-  --blue: #2457d6;
-  --saffron: #f5a623;
-  --shadow: 0 24px 70px rgba(11, 31, 36, 0.14);
+  --soft: #faf5f6;
+  --deep: #3d0a14;
+  --maroon: #9b1b30;
+  --maroon-dark: #6b1222;
+  --maroon-light: #c41e3a;
+  --gold: #d4a017;
+  --shadow: 0 24px 70px rgba(61, 10, 20, 0.14);
 }
 
 * {
@@ -43,8 +43,8 @@ a {
   left: 0;
   right: 0;
   z-index: 10;
-  background: rgba(255, 255, 255, 0.9);
-  border-bottom: 1px solid rgba(219, 227, 230, 0.72);
+  background: rgba(255, 255, 255, 0.94);
+  border-bottom: 1px solid rgba(155, 27, 48, 0.12);
   backdrop-filter: blur(16px);
 }
 
@@ -63,6 +63,17 @@ a {
   align-items: center;
   gap: 12px;
   min-width: max-content;
+}
+
+.brand-logo {
+  height: 44px;
+  width: auto;
+  display: block;
+  border-radius: 6px;
+}
+
+.brand-logo-footer {
+  height: 52px;
 }
 
 .brand-mark {
@@ -103,7 +114,7 @@ a {
   padding: 12px 16px;
   border-radius: 8px;
   color: white !important;
-  background: var(--green);
+  background: var(--maroon);
 }
 
 .nav-toggle {
@@ -147,8 +158,8 @@ a {
 
 .hero-overlay {
   background:
-    linear-gradient(90deg, rgba(5, 16, 18, 0.94) 0%, rgba(5, 16, 18, 0.78) 40%, rgba(5, 16, 18, 0.16) 100%),
-    linear-gradient(0deg, rgba(5, 16, 18, 0.45), rgba(5, 16, 18, 0.05));
+    linear-gradient(90deg, rgba(61, 10, 20, 0.94) 0%, rgba(61, 10, 20, 0.78) 40%, rgba(61, 10, 20, 0.16) 100%),
+    linear-gradient(0deg, rgba(61, 10, 20, 0.45), rgba(61, 10, 20, 0.05));
 }
 
 .hero-content {
@@ -158,7 +169,7 @@ a {
 }
 
 .eyebrow {
-  color: var(--green);
+  color: var(--maroon);
   margin: 0 0 12px;
   font-size: 13px;
   font-weight: 800;
@@ -200,7 +211,7 @@ a {
 
 .button.primary {
   color: white;
-  background: var(--green);
+  background: var(--maroon);
 }
 
 .button.secondary {
@@ -378,7 +389,7 @@ p {
   width: 16px;
   height: 16px;
   border-radius: 50%;
-  background: var(--green);
+  background: var(--maroon);
 }
 
 .split-section {
@@ -405,7 +416,7 @@ p {
 .feature-grid span,
 .timeline span,
 .badge {
-  color: var(--saffron);
+  color: var(--gold);
   font-weight: 900;
 }
 
@@ -465,7 +476,8 @@ p {
   margin: 0 0 18px;
   padding: 8px 12px;
   border-radius: 8px;
-  background: #fff3d8;
+  background: #fce8ec;
+  color: var(--maroon-dark);
 }
 
 .price {
@@ -500,7 +512,7 @@ blockquote {
 }
 
 cite {
-  color: var(--green-dark);
+  color: var(--maroon-dark);
   font-style: normal;
   font-weight: 800;
 }
@@ -626,7 +638,7 @@ cite {
   }
 
   .hero-overlay {
-    background: rgba(5, 16, 18, 0.78);
+    background: rgba(61, 10, 20, 0.78);
   }
 
   .tabs {

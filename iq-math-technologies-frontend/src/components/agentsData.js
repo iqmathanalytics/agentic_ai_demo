@@ -41,6 +41,7 @@ export const AGENT_CONFIGS = {
     status: "Live",
     gradient: "from-emerald-500 to-cyan-500",
     workflow: [
+      { id: "ticker", name: "Ticker Resolution Agent", icon: "🎯", status: "idle" },
       { id: "company", name: "Company Intelligence Agent", icon: "🏢", status: "idle" },
       { id: "news", name: "News Research Agent", icon: "📰", status: "idle" },
       { id: "market", name: "Market Data Agent", icon: "📊", status: "idle" },
@@ -48,6 +49,7 @@ export const AGENT_CONFIGS = {
       { id: "valuation", name: "Valuation Agent", icon: "💰", status: "idle" },
       { id: "risk", name: "Risk Analysis Agent", icon: "⚠️", status: "idle" },
       { id: "analyst", name: "Analyst Consensus Agent", icon: "🎯", status: "idle" },
+      { id: "quantitative", name: "Quantitative Analysis Agent", icon: "🧮", status: "idle" },
       { id: "decision", name: "Investment Decision Agent", icon: "💡", status: "idle" },
     ],
     logs: [

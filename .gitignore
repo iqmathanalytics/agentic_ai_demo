@@ -1,0 +1,29 @@
+# Root-level gitignore for the monorepo
+
+# Python / backend
+backend/.venv/
+backend/.env
+backend/__pycache__/
+backend/**/__pycache__/
+backend/**/*.pyc
+backend/app/database/*.sqlite3
+backend/scripts/_*.json
+backend/scripts/_*.txt
+
+# Frontend
+iq-math-technologies-frontend/node_modules/
+iq-math-technologies-frontend/dist/
+iq-math-technologies-frontend/dist-ssr/
+iq-math-technologies-frontend/.env.local
+iq-math-technologies-frontend/*.local
+iq-math-technologies-frontend/.vite/
+
+# Editor
+.vscode/
+.idea/
+*.suo
+.DS_Store
+
+# Sensitive / personal files – do NOT commit resumes or real credentials
+*.pdf
+.env

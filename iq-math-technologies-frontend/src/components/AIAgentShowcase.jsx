@@ -4,6 +4,7 @@ import { AGENT_CONFIGS } from "./agentsData";
 import AgentCards from "./AgentCards";
 import RightPanel from "./RightPanel";
 import { Modals, PROVIDER_MODELS } from "./Modals";
+import { BRAND } from "../brand";
 
 const API_BASE = import.meta.env.VITE_AGENT_API_URL;
 const WS_BASE = API_BASE.replace(/^http/, "ws");
@@ -110,7 +111,7 @@ export default function AIAgentsShowcase() {
   const runAgent = useCallback(
     async (agentId, input) => {
       const activeCredentials = loadCredentials();
-      if (!activeCredentials) {
+      if (!activeCredentials && agentId !== "website_audit") {
         setPendingAgent(agentId);
         setActiveModal("credentials");
         return;
@@ -140,13 +141,14 @@ export default function AIAgentsShowcase() {
 
       socket.onopen = () => {
         appendLog(nowLine("WebSocket connected. Dispatching agent graph..."));
+        const creds = activeCredentials || { provider: "groq", model: "llama-3.3-70b-versatile", apiKey: "" };
         socket.send(
           JSON.stringify({
             agent: agentId,
             credentials: {
-              provider: activeCredentials.provider,
-              model: activeCredentials.model,
-              api_key: activeCredentials.apiKey,
+              provider: creds.provider,
+              model: creds.model,
+              api_key: creds.apiKey || "",
             },
             input: normalizedInput,
           })
@@ -220,7 +222,11 @@ export default function AIAgentsShowcase() {
       setLogs([nowLine(`${AGENT_CONFIGS[agentId].title} workspace opened.`)]);
 
       if (!loadCredentials()) {
-        setActiveModal("credentials");
+        if (agentId === "website_audit") {
+          setActiveModal(agentId);
+        } else {
+          setActiveModal("credentials");
+        }
       } else {
         setActiveModal(agentId);
       }
@@ -260,8 +266,9 @@ export default function AIAgentsShowcase() {
 
   return (
     <section className="relative py-24 overflow-hidden" id="agents">
-      <div className="absolute inset-0 bg-[#0B0F19]">
-        <div className="absolute inset-0 opacity-[0.08] bg-[linear-gradient(rgba(255,255,255,.09)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,.09)_1px,transparent_1px)] bg-[size:36px_36px]" />
+      <div className="absolute inset-0 bg-premium-bg">
+        <div className="absolute inset-0 opacity-[0.06] bg-[linear-gradient(rgba(155,27,48,.15)_1px,transparent_1px),linear-gradient(90deg,rgba(155,27,48,.15)_1px,transparent_1px)] bg-[size:36px_36px]" />
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[400px] bg-nexperts-maroon/20 blur-[120px] rounded-full pointer-events-none" />
       </div>
 
       <div className="relative mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
@@ -272,19 +279,22 @@ export default function AIAgentsShowcase() {
           transition={{ duration: 0.6 }}
           className="text-center mb-12"
         >
-          <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-[11px] font-semibold bg-blue-500/10 text-blue-300 border border-blue-500/20 mb-4">
-            <span className="inline-block w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
-            AI AGENT SHOWCASE
+          <div className="flex justify-center mb-5">
+            <img src={BRAND.logo} alt={BRAND.name} className="h-12 rounded-md shadow-lg shadow-black/30" />
+          </div>
+          <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-[11px] font-semibold bg-nexperts-maroon/15 text-rose-200 border border-nexperts-maroon/30 mb-4">
+            <span className="inline-block w-1.5 h-1.5 rounded-full bg-rose-400 animate-pulse" />
+            {BRAND.name.toUpperCase()} · AI AGENT SHOWCASE
           </span>
           <h2 className="text-white font-bold mb-4">
             Experience AI Agents in{" "}
-            <span className="bg-gradient-to-r from-blue-400 via-indigo-400 to-cyan-400 bg-clip-text text-transparent">
+            <span className="bg-gradient-to-r from-rose-300 via-red-300 to-amber-300 bg-clip-text text-transparent">
               Real Time
             </span>
           </h2>
           <p className="text-slate-400 max-w-2xl mx-auto text-sm leading-relaxed">
-            Connect your LLM provider and run live LangGraph-style AI workflows with streaming
-            execution logs, pipeline state, and professional reports.
+            Connect your LLM provider and run live LangGraph-style AI workflows — the same
+            production patterns taught in our Agentic AI Engineering course.
           </p>
         </motion.div>
 
@@ -295,7 +305,7 @@ export default function AIAgentsShowcase() {
             viewport={{ once: true }}
             transition={{ duration: 0.5, delay: 0.2 }}
           >
-            <div className="p-4 rounded-2xl border border-white/5 bg-[#121826]/80 backdrop-blur-sm">
+            <div className="p-4 rounded-2xl border border-nexperts-maroon/20 bg-premium-surface/90 backdrop-blur-sm">
               <div className="flex items-center justify-between mb-3 px-1">
                 <div className="text-[10px] text-slate-500 uppercase tracking-wider font-medium">
                   Agent Scenarios
@@ -303,7 +313,7 @@ export default function AIAgentsShowcase() {
                 <button
                   type="button"
                   onClick={() => setActiveModal("settings")}
-                  className="text-[10px] text-cyan-300 border border-cyan-400/20 bg-cyan-400/10 rounded-lg px-2 py-1 hover:bg-cyan-400/15 transition-colors"
+                  className="text-[10px] text-rose-300 border border-rose-400/20 bg-rose-400/10 rounded-lg px-2 py-1 hover:bg-rose-400/15 transition-colors"
                 >
                   AI Providers
                 </button>
@@ -319,7 +329,7 @@ export default function AIAgentsShowcase() {
             transition={{ duration: 0.5, delay: 0.3 }}
             className="min-h-[640px]"
           >
-            <div className="h-full p-5 rounded-2xl border border-white/5 bg-[#121826]/80 backdrop-blur-sm">
+            <div className="h-full p-5 rounded-2xl border border-nexperts-maroon/20 bg-premium-surface/90 backdrop-blur-sm">
               <RightPanel
                 agentId={selectedAgent}
                 status={status}

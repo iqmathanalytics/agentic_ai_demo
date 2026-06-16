@@ -1,5 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import AIAgentsShowcase from "./components/AIAgentShowcase";
+import { BRAND } from "./brand";
+import heroImage from "../assets/hero-ai-classroom.png";
 
 const navItems = [
   ["Overview", "#overview"],
@@ -30,7 +32,7 @@ const overviewTabs = [
     body:
       "Weekly live classes, guided labs, assignments, office hours, and recorded recaps help learners keep momentum without leaving their current role.",
     points: [
-      "Saturday and Sunday live batches in IST.",
+      "Saturday and Sunday live batches in Malaysia Time (MYT).",
       "Assignment reviews and capstone checkpoints.",
       "Private community for doubt-solving and project feedback.",
     ],
@@ -40,7 +42,7 @@ const overviewTabs = [
     label: "Learner Support",
     title: "Mentoring beyond the lecture",
     body:
-      "IQ Math Technologies combines engineering coaching with applied math intuition, helping learners understand why systems work, not only how to call an API.",
+      "Nexperts Academy combines hands-on engineering coaching with production thinking, helping learners understand why agent systems work — not only how to call an API.",
     points: [
       "Mentor-led reviews for architecture and code quality.",
       "Career-ready portfolio guidance.",
@@ -69,22 +71,22 @@ const curriculum = [
 
 const outcomes = [
   ["Portfolio projects", "Ship an AI tutor, support agent, document analyst, analytics copilot, and capstone."],
-  ["Certificate", "Receive a completion certificate from IQ Math Technologies after final review."],
+  ["Certificate", `Receive a completion certificate from ${BRAND.name} after final capstone review.`],
   ["Career readiness", "Practice explaining architecture, tradeoffs, evaluation, and deployment decisions."],
 ];
 
 const testimonials = [
   [
     "The projects helped me understand how agent workflows actually behave in production.",
-    "Software Engineer, Bengaluru",
+    "Software Engineer, Kuala Lumpur",
   ],
   [
     "The math-first explanations made RAG, embeddings, and evaluation much easier to reason about.",
-    "Data Analyst, Pune",
+    "Data Analyst, Penang",
   ],
   [
     "I went from scattered AI tutorials to a portfolio project I could explain clearly.",
-    "Founder, Hyderabad",
+    "Founder, Johor Bahru",
   ],
 ];
 
@@ -94,8 +96,8 @@ const faqs = [
     "Basic Python helps. The course starts with foundations and moves into advanced systems step by step.",
   ],
   [
-    "Will sessions suit Indian working professionals?",
-    "Yes. Live classes are planned around IST weekend slots, with recordings for revision.",
+    "Will sessions suit working professionals?",
+    "Yes. Live classes are planned around MYT weekend slots, with recordings for revision.",
   ],
   [
     "Is this only for software developers?",
@@ -107,14 +109,14 @@ const faqs = [
   ],
 ];
 
-function Brand() {
+function Brand({ variant = "header" }) {
   return (
-    <a className="brand" href="#top" aria-label="IQ Math Technologies home">
-      <span className="brand-mark">IQ</span>
-      <span>
-        <strong>IQ Math</strong>
-        <small>Technologies</small>
-      </span>
+    <a className="brand" href="#top" aria-label={`${BRAND.name} home`}>
+      <img
+        src={BRAND.logo}
+        alt={BRAND.name}
+        className={`brand-logo ${variant === "footer" ? "brand-logo-footer" : ""}`}
+      />
     </a>
   );
 }
@@ -155,25 +157,25 @@ function Header() {
 function Hero() {
   return (
     <section className="hero">
-      <img className="hero-image" src="/assets/hero-ai-classroom.png" alt="AI engineering classroom" />
+      <img className="hero-image" src={heroImage} alt="Agentic AI engineering classroom at Nexperts Academy" />
       <div className="hero-overlay" />
       <div className="hero-content">
-        <p className="eyebrow">Live online cohort for Indian professionals</p>
+        <p className="eyebrow">{BRAND.tagline} · Live online cohort</p>
         <h1>Agentic AI Engineering Course</h1>
         <p className="hero-copy">
-          Learn to design, build, and deploy autonomous AI workflows with Python, LLMs,
-          retrieval systems, tool calling, and production-grade evaluation.
+          Master LangChain, LangGraph, RAG, and multi-agent workflows. Build, evaluate,
+          and deploy production-grade AI systems with mentor-led guidance from {BRAND.name}.
         </p>
         <div className="hero-actions">
           <a className="button primary" href="#pricing">
-            View Indian Pricing
+            View Course Pricing
           </a>
           <a className="button secondary" href="#curriculum">
             Explore Syllabus
           </a>
         </div>
         <div className="hero-meta" aria-label="Course highlights">
-          {["8 weeks", "Weekend live sessions", "Capstone project", "Certificate included"].map((item) => (
+          {["80 hours", "Weekend live sessions", "Capstone project", "Certificate included"].map((item) => (
             <span key={item}>{item}</span>
           ))}
         </div>
@@ -186,10 +188,10 @@ function StatsBand() {
   return (
     <section className="stats-band" aria-label="Program statistics">
       {[
-        ["20+", "hands-on labs"],
+        ["80 hrs", "live instruction"],
         ["5", "production projects"],
         ["1:1", "mentor review"],
-        ["India", "timezone friendly"],
+        ["MY", "timezone friendly"],
       ].map(([value, label]) => (
         <div key={label}>
           <strong>{value}</strong>
@@ -210,8 +212,8 @@ function Overview() {
         <p className="eyebrow">Course overview</p>
         <h2>Built for people who want to ship real AI systems.</h2>
         <p>
-          This React frontend mirrors the premium course-landing structure of the reference site,
-          adapted for IQ Math Technologies, Indian learners, and INR-based enrollment.
+          A structured path from prompts to deployed agents — built by {BRAND.name} for
+          engineers, analysts, founders, and educators ready to ship real AI products.
         </p>
       </div>
 
@@ -323,11 +325,11 @@ function Pricing() {
   return (
     <section className="pricing-section" id="pricing">
       <div className="pricing-copy">
-        <p className="eyebrow">Indian pricing</p>
+        <p className="eyebrow">Course pricing</p>
         <h2>Enroll in the next cohort.</h2>
         <p>
-          Pricing is displayed in Indian Rupees with GST-ready invoice support. Flexible
-          installment support can be added during counselling.
+          Flexible installment support available during admissions counselling.
+          GST-ready invoicing for corporate and individual enrollments.
         </p>
         <div className="countdown" aria-label="Offer countdown">
           <CountdownItem value={timeLeft.days} label="days" />
@@ -339,19 +341,19 @@ function Pricing() {
         <p className="badge">Early bird</p>
         <h3>Agentic AI Engineering</h3>
         <div className="price">
-          <span>Rs.</span>
-          <strong>24,999</strong>
+          <span>RM</span>
+          <strong>5,997</strong>
         </div>
-        <p className="old-price">Regular fee: Rs. 39,999</p>
+        <p className="old-price">Regular fee: RM 9,997</p>
         <CheckList
           items={[
-            "8-week live cohort",
+            "80-hour live cohort",
             "All recordings and lab files",
             "Mentor feedback on projects",
             "Certificate and capstone review",
           ]}
         />
-        <a className="button primary wide" href="mailto:admissions@iqmathtechnologies.com">
+        <a className="button primary wide" href={`mailto:${BRAND.email}`}>
           Request Callback
         </a>
       </aside>
@@ -410,8 +412,9 @@ function Footer() {
   return (
     <footer className="footer">
       <div>
-        <Brand />
-        <p>Applied AI, mathematics, and engineering education for modern teams.</p>
+        <Brand variant="footer" />
+        <p>{BRAND.tagline} — applied AI and agentic engineering education for modern teams.</p>
+        <small>© {new Date().getFullYear()} {BRAND.name}</small>
       </div>
       <div className="footer-links">
         {navItems.slice(0, 4).map(([label, href]) => (
@@ -419,7 +422,10 @@ function Footer() {
             {label}
           </a>
         ))}
-        <a href="mailto:admissions@iqmathtechnologies.com">Contact</a>
+        <a href={`mailto:${BRAND.email}`}>Contact</a>
+        <a href={BRAND.website} target="_blank" rel="noopener noreferrer">
+          nexpertsai.com
+        </a>
       </div>
     </footer>
   );
@@ -471,7 +477,7 @@ class ErrorBoundary extends React.Component {
   render() {
     if (this.state.hasError) {
       return (
-        <div className="min-h-screen bg-[#0B0F19] flex items-center justify-center p-6">
+        <div className="min-h-screen bg-premium-bg flex items-center justify-center p-6">
           <div className="max-w-md w-full p-8 rounded-3xl border border-rose-500/20 bg-rose-500/5 text-center">
             <div className="text-4xl mb-6">⚠️</div>
             <h2 className="text-white font-bold text-xl mb-3">Agent execution failed</h2>

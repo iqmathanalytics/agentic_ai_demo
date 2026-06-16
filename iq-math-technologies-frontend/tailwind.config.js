@@ -4,14 +4,21 @@ export default {
   theme: {
     extend: {
       colors: {
+        nexperts: {
+          maroon: "#9B1B30",
+          "maroon-dark": "#6B1222",
+          "maroon-deep": "#3D0A14",
+          gold: "#D4A017",
+          blush: "#FAF5F6",
+        },
         premium: {
-          bg: "#0B0F19",
-          surface: "#121826",
-          card: "#1A2238",
-          border: "#1E293B",
-          blue: "#3B82F6",
-          indigo: "#6366F1",
-          cyan: "#06B6D4",
+          bg: "#1A0A0E",
+          surface: "#241018",
+          card: "#2E1520",
+          border: "#4A2030",
+          accent: "#9B1B30",
+          accentLight: "#C41E3A",
+          gold: "#D4A017",
           green: "#10B981",
           amber: "#F59E0B",
           red: "#EF4444",

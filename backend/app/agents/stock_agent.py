@@ -1,65 +1,58 @@
 import json
 import logging
+import math
 import operator
-from typing import Annotated, Sequence, TypedDict, List, Optional
+from typing import Annotated, Optional, Sequence, TypedDict
 
-from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
+from langchain_core.messages import BaseMessage
 from langgraph.graph import END, StateGraph
-from pydantic import BaseModel, Field
 
-from app.models.schemas import AgentEvent, AgentRunRequest, EquityReport, Recommendation
-from app.services.llm_factory import create_chat_model
-from app.utils.events import SendEvent, emit
-
-from app.tools.stock_tools import (
-    resolve_ticker,
-    search_company_profile,
-    search_latest_news,
-    get_market_metrics,
-    calculate_fundamentals,
-    calculate_valuation,
-    calculate_risk,
-    get_analyst_ratings,
-    generate_trading_factors,
-    get_investment_verdict,
-    discover_peer_companies,
-    get_comprehensive_analysis,
+from app.agents.stock_report_builder import (
+    build_equity_report,
+    build_company_overview_with_llm,
+    build_narrative_with_llm,
+    build_recommendation_reasoning_with_llm,
+    extract_company_overview,
+    extract_news_items,
 )
+from app.models.schemas import AgentEvent, AgentRunRequest, EquityReport
+from app.services.llm_factory import create_chat_model
+from app.tools.search_tools import get_search_sources_used, perform_search
+from app.tools.stock_tools import (
+    calculate_fundamentals,
+    calculate_risk,
+    calculate_valuation,
+    get_analyst_ratings,
+    get_comprehensive_analysis,
+    get_market_metrics,
+)
+from app.utils.events import SendEvent, emit
 
 logger = logging.getLogger(__name__)
 
-class TickerInfo(BaseModel):
-    symbol: str = Field(description="Stock ticker symbol")
-    exchange: str = Field(description="Primary stock exchange")
-    found: bool = Field(description="Whether the ticker was successfully resolved")
 
 class EquityResearchState(TypedDict):
     messages: Annotated[Sequence[BaseMessage], operator.add]
     symbol: str
     exchange: str
     company_name: str
-
-    # LLM-generated summaries
     company_report: str
+    company_search_raw: str
     news_report: str
-
-    # Structured tool data (deterministic)
+    news_search_raw: str
+    news_headlines: list
+    news_items: list
     market_data: dict
     fundamental_data: dict
     valuation_data: dict
     risk_data: dict
     analyst_data: dict
-
-    # Quantitative analysis (Computed)
     quantitative_data: dict
-
-    # Final output
     final_report: str
     structured_data: Optional[EquityReport]
-
-    # Resilience flags
     ticker_resolved: bool
     error_message: Optional[str]
+
 
 async def run_stock_agent(request: AgentRunRequest, send: SendEvent) -> dict:
     payload = request.input
@@ -67,7 +60,7 @@ async def run_stock_agent(request: AgentRunRequest, send: SendEvent) -> dict:
     exchange = payload.get("exchange", "NSE")
     name = payload.get("name", symbol)
 
-    llm = create_chat_model(request.credentials)
+    llm = create_chat_model(request.credentials, streaming=False)
 
     async def _emit_agent_start(agent_id, agent_name, progress):
         await emit(send, "agent_started", f"Starting {agent_name}...", progress,
@@ -82,302 +75,173 @@ async def run_stock_agent(request: AgentRunRequest, send: SendEvent) -> dict:
     async def ticker_resolution_node(state: EquityResearchState):
         await _emit_agent_start("ticker", "Ticker Resolution Agent", 5)
 
-        prompt = f"""You are a Ticker Resolution Agent.
-Find the correct stock ticker symbol and exchange for '{state['company_name']}' or verify '{state['symbol']}'.
-Primary Exchange requested: {state['exchange']}.
-Use the resolve_ticker tool."""
-        bound_llm = llm.bind_tools([resolve_ticker])
-        try:
-            msg = await bound_llm.ainvoke([SystemMessage(content=prompt), HumanMessage(content="Resolve ticker.")])
-            found_symbol = state['symbol']
-            found_exchange = state['exchange']
-            found = False
-
-            if msg.tool_calls:
-                for tc in msg.tool_calls:
-                    res = resolve_ticker.invoke(tc["args"])
-                    extraction_prompt = f"Extract the stock ticker and exchange from these search results for {state['company_name']}. Results: {res}"
-                    ticker_llm = llm.with_structured_output(TickerInfo)
-                    ticker_result = await ticker_llm.ainvoke([SystemMessage(content=extraction_prompt)])
-                    found_symbol = ticker_result.symbol.upper()
-                    found_exchange = ticker_result.exchange.upper()
-                    found = ticker_result.found
-
-            if not found and state['symbol']:
-                found = True
-
-            await _emit_agent_end("ticker", "Ticker Resolution Agent", 8, success=found)
+        if state["symbol"]:
+            await _emit_agent_end("ticker", "Ticker Resolution Agent", 8, success=True)
             return {
-                "symbol": found_symbol,
-                "exchange": found_exchange,
-                "ticker_resolved": found,
-                "error_message": None if found else f"Could not resolve ticker for {state['company_name']}"
+                "symbol": state["symbol"].upper(),
+                "exchange": state["exchange"].upper(),
+                "ticker_resolved": True,
+                "error_message": None,
             }
-        except Exception as e:
-            logger.error(f"Ticker resolution failed: {e}")
-            await _emit_agent_end("ticker", "Ticker Resolution Agent", 8, success=False)
-            return {"ticker_resolved": False, "error_message": str(e)}
+
+        query_name = state["company_name"]
+        search_res = perform_search(f"{query_name} stock ticker symbol {state['exchange']}")
+        await _emit_agent_end("ticker", "Ticker Resolution Agent", 8, success=bool(search_res))
+        return {
+            "symbol": state["symbol"] or query_name[:10].upper(),
+            "exchange": state["exchange"],
+            "ticker_resolved": bool(state["symbol"] or query_name),
+            "error_message": None if query_name else "Could not resolve ticker.",
+        }
 
     async def company_node(state: EquityResearchState):
-        if not state.get("ticker_resolved"): return {}
+        if not state.get("ticker_resolved"):
+            return {}
         await _emit_agent_start("company", "Company Intelligence Agent", 10)
-        tool = search_company_profile
-        bound_llm = llm.bind_tools([tool])
-        prompt = f"You are a Company Intelligence Agent. Use the tool to find information about {state['company_name']} ({state['symbol']}). Write a brief executive summary."
         try:
-            msg = await bound_llm.ainvoke([SystemMessage(content=prompt), HumanMessage(content="Start research.")])
-            if msg.tool_calls:
-                for tc in msg.tool_calls:
-                    res = tool.invoke(tc["args"])
-                    msg = await llm.ainvoke([SystemMessage(content=prompt), HumanMessage(content=f"Tool result: {res}\n\nWrite the executive summary.")])
+            search_raw = perform_search(
+                f'"{state["company_name"]}" {state["symbol"]} stock company business profile what does the company do'
+            )
+            overview = extract_company_overview(
+                search_raw,
+                state["company_name"],
+                state["symbol"],
+                state.get("market_data") or {},
+            )
             await _emit_agent_end("company", "Company Intelligence Agent", 15)
-            return {"company_report": msg.content}
+            return {"company_report": overview, "company_search_raw": search_raw}
         except Exception as e:
-            logger.error(f"Company node failed: {e}")
+            logger.error("Company node failed: %s", e)
             await _emit_agent_end("company", "Company Intelligence Agent", 15, success=False)
-            return {"company_report": "Data Not Available"}
+            return {"company_report": "Data Not Available", "company_search_raw": ""}
 
     async def news_node(state: EquityResearchState):
-        if not state.get("ticker_resolved"): return {}
+        if not state.get("ticker_resolved"):
+            return {}
         await _emit_agent_start("news", "News Research Agent", 20)
-        tool = search_latest_news
-        bound_llm = llm.bind_tools([tool])
-        prompt = f"You are a News Research Agent. Use the tool to find latest news about {state['company_name']}. Write a summary of most important developments and state the sentiment (Bullish / Neutral / Bearish)."
         try:
-            msg = await bound_llm.ainvoke([SystemMessage(content=prompt), HumanMessage(content="Start news research.")])
-            if msg.tool_calls:
-                for tc in msg.tool_calls:
-                    res = tool.invoke(tc["args"])
-                    msg = await llm.ainvoke([SystemMessage(content=prompt), HumanMessage(content=f"Tool result: {res}\n\nWrite the news summary.")])
+            search_raw = perform_search(
+                f'"{state["company_name"]}" {state["symbol"]} stock latest news earnings',
+                search_type="news",
+            )
+            news_items = extract_news_items(search_raw, state["company_name"], state["symbol"])
+            headlines = [n.title for n in news_items]
+            summary = "\n".join(f"- {h}" for h in headlines[:5]) if headlines else "No recent news found."
             await _emit_agent_end("news", "News Research Agent", 30)
-            return {"news_report": msg.content}
+            return {
+                "news_report": summary,
+                "news_search_raw": search_raw,
+                "news_headlines": headlines,
+                "news_items": [n.model_dump() for n in news_items],
+            }
         except Exception as e:
-            logger.error(f"News node failed: {e}")
+            logger.error("News node failed: %s", e)
             await _emit_agent_end("news", "News Research Agent", 30, success=False)
-            return {"news_report": "Data Not Available"}
+            return {"news_report": "Data Not Available", "news_search_raw": "", "news_headlines": [], "news_items": []}
 
     async def market_node(state: EquityResearchState):
-        if not state.get("ticker_resolved"): return {}
+        if not state.get("ticker_resolved"):
+            return {}
         await _emit_agent_start("market", "Market Data Agent", 35)
         try:
             data = get_market_metrics.invoke({"symbol": state["symbol"], "exchange": state["exchange"]})
             await _emit_agent_end("market", "Market Data Agent", 45)
             return {"market_data": data}
         except Exception as e:
-            logger.error(f"Market node failed: {e}")
+            logger.error("Market node failed: %s", e)
             await _emit_agent_end("market", "Market Data Agent", 45, success=False)
             return {"market_data": {}}
 
     async def fundamental_node(state: EquityResearchState):
-        if not state.get("ticker_resolved"): return {}
+        if not state.get("ticker_resolved"):
+            return {}
         await _emit_agent_start("fundamental", "Fundamental Analysis Agent", 50)
         try:
             data = calculate_fundamentals.invoke({"symbol": state["symbol"], "exchange": state["exchange"]})
             await _emit_agent_end("fundamental", "Fundamental Analysis Agent", 55)
             return {"fundamental_data": data}
         except Exception as e:
-            logger.error(f"Fundamental node failed: {e}")
+            logger.error("Fundamental node failed: %s", e)
             await _emit_agent_end("fundamental", "Fundamental Analysis Agent", 55, success=False)
             return {"fundamental_data": {}}
 
     async def valuation_node(state: EquityResearchState):
-        if not state.get("ticker_resolved"): return {}
+        if not state.get("ticker_resolved"):
+            return {}
         await _emit_agent_start("valuation", "Valuation Agent", 60)
         try:
             data = calculate_valuation.invoke({"symbol": state["symbol"], "exchange": state["exchange"]})
             await _emit_agent_end("valuation", "Valuation Agent", 65)
             return {"valuation_data": data}
         except Exception as e:
-            logger.error(f"Valuation node failed: {e}")
+            logger.error("Valuation node failed: %s", e)
             await _emit_agent_end("valuation", "Valuation Agent", 65, success=False)
             return {"valuation_data": {}}
 
     async def risk_node(state: EquityResearchState):
-        if not state.get("ticker_resolved"): return {}
+        if not state.get("ticker_resolved"):
+            return {}
         await _emit_agent_start("risk", "Risk Analysis Agent", 70)
         try:
             data = calculate_risk.invoke({"symbol": state["symbol"], "exchange": state["exchange"]})
             await _emit_agent_end("risk", "Risk Analysis Agent", 75)
             return {"risk_data": data}
         except Exception as e:
-            logger.error(f"Risk node failed: {e}")
+            logger.error("Risk node failed: %s", e)
             await _emit_agent_end("risk", "Risk Analysis Agent", 75, success=False)
             return {"risk_data": {}}
 
     async def analyst_node(state: EquityResearchState):
-        if not state.get("ticker_resolved"): return {}
+        if not state.get("ticker_resolved"):
+            return {}
         await _emit_agent_start("analyst", "Analyst Consensus Agent", 80)
         try:
             data = get_analyst_ratings.invoke({"symbol": state["symbol"], "exchange": state["exchange"]})
             await _emit_agent_end("analyst", "Analyst Consensus Agent", 85)
             return {"analyst_data": data}
         except Exception as e:
-            logger.error(f"Analyst node failed: {e}")
+            logger.error("Analyst node failed: %s", e)
             await _emit_agent_end("analyst", "Analyst Consensus Agent", 85, success=False)
             return {"analyst_data": {}}
 
     async def quantitative_node(state: EquityResearchState):
-        if not state.get("ticker_resolved"): return {}
+        if not state.get("ticker_resolved"):
+            return {}
         await _emit_agent_start("quantitative", "Quantitative Analysis Agent", 86)
         try:
             data = get_comprehensive_analysis.invoke({"symbol": state["symbol"], "exchange": state["exchange"]})
+            search_sources = get_search_sources_used()
+            existing = data.get("dataSources") or []
+            for s in search_sources:
+                if s not in existing:
+                    existing.append(s)
+            market_src = (state.get("market_data") or {}).get("Source")
+            if market_src and market_src not in existing:
+                existing.append(market_src)
+            data["dataSources"] = existing
             await _emit_agent_end("quantitative", "Quantitative Analysis Agent", 90)
             return {"quantitative_data": data}
         except Exception as e:
-            logger.error(f"Quantitative node failed: {e}")
+            logger.error("Quantitative node failed: %s", e)
             await _emit_agent_end("quantitative", "Quantitative Analysis Agent", 90, success=False)
             return {"quantitative_data": {}}
 
     async def decision_node(state: EquityResearchState):
-        await _emit_agent_start("decision", "Investment Decision Agent", 90)
+        await _emit_agent_start("decision", "Investment Decision Agent", 92)
 
-        def _fmt(val, default="Data Not Available", max_len=1500):
-            if val is None or val == "None":
-                return default
-            if isinstance(val, dict):
-                if not val or "error" in val:
-                    return default
-                s = json.dumps(val, indent=2)
-                return s[:max_len] + "\n...(truncated)" if len(s) > max_len else s
-            if isinstance(val, list):
-                if not val:
-                    return default
-                s = json.dumps(val, indent=2)
-                return s[:max_len] + "\n...(truncated)" if len(s) > max_len else s
-            s = str(val)
-            return s[:max_len] + "\n...(truncated)" if len(s) > max_len else s
-
-        comp = _fmt(state.get('company_report'))
-        news = _fmt(state.get('news_report'))
-        market_raw = state.get('market_data', {}) or {}
-        # Limit chartData to max 30 days (1 month) to save tokens but still provide recent trend
-        market = dict(market_raw)
-        if 'chartData' in market and isinstance(market['chartData'], list):
-            market['chartData'] = market['chartData'][-30:]
-            
-        fund = state.get('fundamental_data', {}) or {}
-        val = state.get('valuation_data', {}) or {}
-        risk = state.get('risk_data', {}) or {}
-        analyst = state.get('analyst_data', {}) or {}
-        quant_raw = state.get('quantitative_data', {}) or {}
-        quant = dict(quant_raw)
-        if "peers" in quant and isinstance(quant["peers"], list):
-            quant["peers"] = quant["peers"][:3]
-
-        def _fmt_quant(d, max_len=1500):
-            if isinstance(d, dict):
-                s = json.dumps(d, indent=2, default=str)
-                return s[:max_len] + "\n...(truncated)" if len(s) > max_len else s
-            s = str(d)
-            return s[:max_len] + "\n...(truncated)" if len(s) > max_len else s
-
-        prompt = f"""You are a professional equity research analyst.
-
-Analyze the provided stock metrics and generate an investment recommendation with the help of past one month data.
-
-Rules:
-* Recommendation must be one of: BUY, HOLD, SELL
-* Never return INSUFFICIENT_DATA
-* Keep reasoning concise
-
-Company Info:
-{comp}
-
-News:
-{news}
-
-Market Metrics (Includes 1-Month Price Data):
-{json.dumps(market, indent=2)}
-
-Fundamentals:
-{json.dumps(fund, indent=2)}
-
-Valuation:
-{json.dumps(val, indent=2)}
-
-Risk Analysis:
-{json.dumps(risk, indent=2)}
-
-Analyst Consensus:
-{json.dumps(analyst, indent=2)}
-
-Quantitative Analysis:
-{_fmt_quant(quant.get("fundamentalScore", {}))}
-
-Fair Value Estimate:
-{_fmt_quant(quant.get("fairValue", {}))}
-
-Bullish Factors:
-{json.dumps(quant.get("bullishFactors", []), indent=2)}
-
-Bearish Factors:
-{json.dumps(quant.get("bearishFactors", []), indent=2)}
-
-Pre-computed Recommendation:
-{_fmt_quant(quant.get("recommendation", {}))}
-
-Peer Companies:
-{json.dumps(quant.get("peers", []), indent=2)}
-
-Guidelines:
-BUY: Strong fundamentals, Positive earnings growth, Significant upside to target price
-HOLD: Mixed fundamentals, Fair valuation, Limited upside
-SELL: Weak fundamentals, Significant downside risk, Poor growth outlook
-
-Generate a complete structured equity research report. Use the pre-computed recommendation as the primary basis. Ensure you explicitly state the Current Price and Market Cap in your detailed report near your final recommendation.
-
-IMPORTANT: The 'report' field must be structured as KEY POINTS / BULLET POINTS â€” not paragraphs. Each key point should start with a bold heading (e.g., **Revenue Growth:**) followed by a concise bullet explanation. Use markdown bullet lists extensively. Avoid long paragraphs. Every section of the report should be scannable key takeaways."""
+        result = build_equity_report(state)
 
         try:
-            structured_llm = llm.with_structured_output(EquityReport)
-            logger.info("=== DECISION NODE: Invoking structured LLM ===")
-            logger.info(f"Prompt:\n{prompt}")
-
-            result = await structured_llm.ainvoke([SystemMessage(content=prompt)])
-
-            logger.info("=== DECISION NODE: Structured output received ===")
-            logger.info(f"Recommendation: {result.recommendation}")
+            enhanced_rec = await build_recommendation_reasoning_with_llm(llm, state, result)
+            clean_overview = await build_company_overview_with_llm(llm, state, result.companyOverview)
+            enhanced_report = await build_narrative_with_llm(llm, state, result)
+            result = result.model_copy(update={
+                "recommendation": enhanced_rec,
+                "companyOverview": clean_overview,
+                "report": enhanced_report,
+            })
         except Exception as e:
-            logger.error("=== DECISION NODE: Structured output failed ===")
-            logger.error(f"Error: {e}", exc_info=True)
-
-            user_friendly_comp = comp if len(comp) < 500 else comp[:500] + "..."
-            user_friendly_news = news if len(news) < 300 else news[:300] + "..."
-            result = EquityReport(
-                companyOverview=user_friendly_comp if user_friendly_comp != "Data Not Available" else "Company data could not be retrieved at this time.",
-                latestNews=[user_friendly_news] if user_friendly_news != "Data Not Available" else [],
-                valuation=dict(market) if dict(market) else {"Assessment": "Data unavailable"},
-                fundamentals=dict(fund) if dict(fund) else {},
-                bullishFactors=quant.get("bullishFactors", [])[:2] if isinstance(quant, dict) else [],
-                bearishFactors=quant.get("bearishFactors", [])[:2] if isinstance(quant, dict) else [],
-                riskAnalysis=dict(risk) if dict(risk) else {},
-                analystRatings=dict(analyst) if dict(analyst) else {},
-                recommendation=Recommendation(
-                    recommendation="HOLD",
-                    confidence=0,
-                    reason1="Analysis could not be completed due to a temporary issue",
-                    reason2="Please try again with a different model provider or check your API limits"
-                ),
-                outlook12Month={},
-                report="# Analysis In Progress\n\nThe automated analysis encountered a temporary issue with the AI provider. Please try again with a different model or check your API key limits."
-            )
-
-        # Ensure Current Price and Market Cap from raw market data are in valuation and top-level fields
-        market_dict = market if isinstance(market, dict) else {}
-        current_price_val = market_dict.get("Current Price")
-        market_cap_val = market_dict.get("Market Cap")
-        
-        if current_price_val is not None:
-            result.valuation["Current Price"] = current_price_val
-            result.currentPrice = float(current_price_val) if isinstance(current_price_val, (int, float)) else None
-        if market_cap_val is not None:
-            result.valuation["Market Cap"] = market_cap_val
-            result.marketCap = float(market_cap_val) if isinstance(market_cap_val, (int, float)) else None
-            
-        # Inject chart data from market data
-        chart_data = market_raw.get("chartData") or []
-        if chart_data:
-            result.chartData = chart_data
+            logger.warning("LLM enhancement skipped: %s", e)
 
         await _emit_agent_end("decision", "Investment Decision Agent", 98)
         return {"structured_data": result}
@@ -408,9 +272,12 @@ IMPORTANT: The 'report' field must be structured as KEY POINTS / BULLET POINTS â
 
     app = graph.compile()
 
-    nodes_list = ["Ticker Resolution Agent", "Company Intelligence Agent", "News Research Agent", "Market Data Agent",
-                  "Fundamental Analysis Agent", "Valuation Agent", "Risk Analysis Agent",
-                  "Analyst Consensus Agent", "Quantitative Analysis Agent", "Investment Decision Agent"]
+    nodes_list = [
+        "Ticker Resolution Agent", "Company Intelligence Agent", "News Research Agent",
+        "Market Data Agent", "Fundamental Analysis Agent", "Valuation Agent",
+        "Risk Analysis Agent", "Analyst Consensus Agent", "Quantitative Analysis Agent",
+        "Investment Decision Agent",
+    ]
 
     await send(AgentEvent(
         type="run_started",
@@ -426,7 +293,11 @@ IMPORTANT: The 'report' field must be structured as KEY POINTS / BULLET POINTS â
             "exchange": exchange,
             "company_name": name,
             "company_report": "",
+            "company_search_raw": "",
             "news_report": "",
+            "news_search_raw": "",
+            "news_headlines": [],
+            "news_items": [],
             "market_data": {},
             "fundamental_data": {},
             "valuation_data": {},
@@ -436,46 +307,34 @@ IMPORTANT: The 'report' field must be structured as KEY POINTS / BULLET POINTS â
             "final_report": "",
             "structured_data": None,
             "ticker_resolved": False,
-            "error_message": None
+            "error_message": None,
         })
 
         if not final_state.get("ticker_resolved"):
             error_msg = final_state.get("error_message") or "Ticker not found."
-            await send(AgentEvent(
-                type="run_failed",
-                message=error_msg,
-                progress=100,
-                status="failed"
-            ))
+            await send(AgentEvent(type="run_failed", message=error_msg, progress=100, status="failed"))
             return {"error": error_msg}
 
         structured_data = final_state.get("structured_data")
         if structured_data and isinstance(structured_data, EquityReport):
             report_data = structured_data.model_dump()
         else:
-            report_data = {
-                "stockName": name,
-                "symbol": final_state.get("symbol", symbol),
-                "exchange": final_state.get("exchange", exchange),
-                "report": "Report generation failed.",
-                "chartData": []
-            }
+            report_data = build_equity_report(final_state).model_dump()
 
-        import math
         def clean_floats(obj):
             if isinstance(obj, dict):
                 return {k: clean_floats(v) for k, v in obj.items()}
-            elif isinstance(obj, list):
+            if isinstance(obj, list):
                 return [clean_floats(v) for v in obj]
-            elif isinstance(obj, float):
-                if math.isnan(obj) or math.isinf(obj):
-                    return None
+            if isinstance(obj, float) and (math.isnan(obj) or math.isinf(obj)):
+                return None
             return obj
 
         report_data = clean_floats(report_data)
-
-        logger.info("FINAL RESPONSE")
-        logger.info(json.dumps(report_data, indent=2))
+        logger.info("FINAL RESPONSE: recommendation=%s confidence=%s completeness=%s",
+                    report_data.get("recommendation", {}).get("recommendation"),
+                    report_data.get("recommendation", {}).get("confidence"),
+                    report_data.get("dataCompleteness"))
 
         await send(AgentEvent(
             type="final",

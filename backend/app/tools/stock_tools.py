@@ -69,7 +69,9 @@ def _get_yfinance_data(ticker: str, period: str = "1y") -> dict | None:
         logger.error(f"yfinance error for {ticker}: {e}")
         return None
 
-def _build_chart_data(ticker: str) -> list:
+def _build_chart_data(ticker: str, current_price: float | None = None) -> list:
+    from datetime import date
+
     data = _get_yfinance_data(ticker, period="5y")
     if not data or data["history"].empty:
         return []
@@ -80,6 +82,13 @@ def _build_chart_data(ticker: str) -> list:
             "time": str(index.date()),
             "value": round(float(row["Close"]), 2)
         })
+    if chart and current_price is not None:
+        today = str(date.today())
+        last_price = chart[-1]["value"]
+        if chart[-1]["time"] != today:
+            chart.append({"time": today, "value": round(float(current_price), 2)})
+        elif abs(last_price - current_price) > 0.001:
+            chart[-1]["value"] = round(float(current_price), 2)
     return chart
 
 from .market_data import collect_market_data
@@ -128,7 +137,10 @@ def get_market_metrics(symbol: str, exchange: str) -> dict:
         "52 Week Low": info.get("fiftyTwoWeekLow"),
         "Average Volume": info.get("averageVolume") or fallback_data.get("volume"),
         "Source": "yfinance",
-        "chartData": _build_chart_data(ticker)
+        "longBusinessSummary": info.get("longBusinessSummary") or info.get("description"),
+        "sector": info.get("sector"),
+        "industry": info.get("industry"),
+        "chartData": _build_chart_data(ticker, current_price)
     }
     return metrics
 

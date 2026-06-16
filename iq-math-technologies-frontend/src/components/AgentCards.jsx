@@ -15,14 +15,14 @@ function AgentCard({ config, isSelected, onSelect, index }) {
       onClick={() => onSelect(config.id)}
       className={`relative w-full text-left p-5 rounded-xl border transition-all duration-500 cursor-pointer ${
         isSelected
-          ? "border-blue-500/60 bg-blue-500/10 shadow-[0_0_30px_-5px_rgba(59,130,246,0.3)]"
-          : "border-white/5 bg-white/[0.03] hover:bg-white/[0.06] hover:border-white/20"
+          ? "border-rose-500/60 bg-rose-500/10 shadow-[0_0_30px_-5px_rgba(155,27,48,0.35)]"
+          : "border-white/5 bg-white/[0.03] hover:bg-white/[0.06] hover:border-rose-500/20"
       }`}
     >
       {isSelected && (
         <motion.div
           layoutId="activeGlow"
-          className="absolute inset-0 rounded-xl bg-gradient-to-br from-blue-500/5 via-transparent to-indigo-500/5 pointer-events-none"
+          className="absolute inset-0 rounded-xl bg-gradient-to-br from-rose-500/5 via-transparent to-amber-500/5 pointer-events-none"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ duration: 0.3 }}
@@ -66,7 +66,7 @@ function AgentCard({ config, isSelected, onSelect, index }) {
           initial={{ scaleX: 0 }}
           animate={{ scaleX: 1 }}
           transition={{ duration: 0.5, ease: "easeOut" }}
-          className="absolute bottom-0 left-3 right-3 h-[2px] bg-gradient-to-r from-blue-500 via-indigo-500 to-cyan-500 rounded-full origin-left"
+          className="absolute bottom-0 left-3 right-3 h-[2px] bg-gradient-to-r from-rose-500 via-red-500 to-amber-500 rounded-full origin-left"
         />
       )}
     </motion.button>

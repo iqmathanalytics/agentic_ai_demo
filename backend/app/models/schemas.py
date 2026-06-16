@@ -28,7 +28,9 @@ EventType = Literal[
 class Credentials(BaseModel):
     provider: Provider
     model: str
-    api_key: str = Field(min_length=6)
+    # Website audits do not require an LLM API key. Keep this optional at the schema level
+    # and enforce it only when an LLM is actually invoked.
+    api_key: str = ""
 
 
 class AgentRunRequest(BaseModel):
@@ -52,11 +54,25 @@ class Recommendation(BaseModel):
     confidence: float = Field(description="Confidence score 0-100")
     reason1: str = Field(description="Primary reason for the recommendation")
     reason2: str = Field(description="Secondary reason for the recommendation")
+    summary: str = Field(default="", description="One-line plain-English summary")
+    reasoning: List[str] = Field(default_factory=list, description="Simple reasoning bullet points")
+
+
+class NewsItem(BaseModel):
+    title: str = ""
+    snippet: str = ""
+    url: str = ""
+    source: str = ""
+    date: str = ""
 
 
 class EquityReport(BaseModel):
+    stockName: str = Field(default="", description="Company display name")
+    symbol: str = Field(default="", description="Stock ticker symbol")
+    exchange: str = Field(default="", description="Stock exchange")
     companyOverview: str = Field(description="Executive summary of business")
     latestNews: List[str] = Field(description="List of most important developments")
+    newsItems: List[NewsItem] = Field(default_factory=list, description="Structured news articles")
     valuation: dict = Field(description="Current Price, Market Cap, PE, Sector Avg PE, etc.")
     fundamentals: dict = Field(description="Revenue Growth, Margins, ROE, Debt/Equity, etc.")
     bullishFactors: List[str] = Field(description="List of positive catalysts")
@@ -69,4 +85,6 @@ class EquityReport(BaseModel):
     report: str = Field(description="The full detailed markdown report")
     currentPrice: float | None = Field(None, description="Current stock price")
     marketCap: float | None = Field(None, description="Market capitalization")
+    dataSources: List[str] = Field(default_factory=list, description="Data providers used in analysis")
+    dataCompleteness: int = Field(default=0, description="Percentage of expected data fields populated")
 

@@ -1,5 +1,6 @@
 import { motion } from "framer-motion";
 import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { useState, useMemo } from "react";
 import {
   Area,
@@ -101,23 +102,135 @@ function ProgressBar({ progress }) {
 function CustomTooltip({ active, payload }) {
   if (!active || !payload?.length) return null;
   return (
-    <div className="bg-[#0B0F19] border border-white/10 rounded-xl px-4 py-3 shadow-2xl backdrop-blur-md">
+    <div className="bg-premium-bg border border-white/10 rounded-xl px-4 py-3 shadow-2xl backdrop-blur-md">
       <p className="text-slate-500 text-[10px] font-mono mb-1 uppercase tracking-tighter">{payload[0].payload.time}</p>
       <p className="text-cyan-400 text-sm font-bold font-mono">${Number(payload[0].value).toLocaleString()}</p>
     </div>
   );
 }
 
+const markdownComponents = {
+  table: ({ children }) => (
+    <div className="my-6 overflow-x-auto rounded-xl border border-white/10 bg-black/20">
+      <table className="w-full min-w-[480px] border-collapse text-left text-[13px]">{children}</table>
+    </div>
+  ),
+  thead: ({ children }) => <thead className="bg-white/[0.04] border-b border-white/10">{children}</thead>,
+  tbody: ({ children }) => <tbody className="divide-y divide-white/5">{children}</tbody>,
+  tr: ({ children }) => <tr className="hover:bg-white/[0.02] transition-colors">{children}</tr>,
+  th: ({ children }) => (
+    <th className="px-4 py-3 text-[10px] font-black uppercase tracking-widest text-slate-400 whitespace-nowrap">
+      {children}
+    </th>
+  ),
+  td: ({ children }) => (
+    <td className="px-4 py-3 text-slate-300 align-top leading-relaxed">{children}</td>
+  ),
+  h3: ({ children }) => (
+    <h3 className="text-base font-black text-cyan-400 mt-8 mb-3 first:mt-0">{children}</h3>
+  ),
+  h2: ({ children }) => (
+    <h2 className="text-lg font-black text-violet-400 mt-8 mb-4 first:mt-0 border-b border-white/5 pb-2">{children}</h2>
+  ),
+  ul: ({ children }) => <ul className="space-y-2 my-4 list-none pl-0">{children}</ul>,
+  li: ({ children }) => (
+    <li className="flex items-start gap-2 text-slate-300">
+      <span className="text-cyan-500 mt-1 shrink-0">•</span>
+      <span className="flex-1">{children}</span>
+    </li>
+  ),
+  p: ({ children }) => <p className="text-slate-300 leading-relaxed my-3">{children}</p>,
+  strong: ({ children }) => <strong className="text-white font-bold">{children}</strong>,
+};
+
 function ReportBlock({ title, report }) {
   if (!report) return null;
   return (
-    <div className="rounded-2xl bg-[#0B0F19] border border-white/5 p-6 shadow-inner">
+    <div className="rounded-2xl bg-premium-bg border border-white/5 p-6 shadow-inner">
       <div className="text-[10px] text-slate-500 uppercase tracking-widest mb-5 font-bold flex items-center gap-3">
         <div className="w-2 h-2 rounded-full bg-gradient-to-r from-cyan-400 to-blue-500" />
         {title}
       </div>
       <div className="prose prose-invert prose-sm max-w-none prose-headings:text-cyan-400 prose-headings:font-black prose-p:text-slate-300 prose-li:text-slate-300 prose-strong:text-white">
-        <ReactMarkdown>{report}</ReactMarkdown>
+        <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+          {report}
+        </ReactMarkdown>
+      </div>
+    </div>
+  );
+}
+
+function AtsBreakdownTable({ rows }) {
+  if (!rows?.length) return null;
+  return (
+    <div className="rounded-2xl bg-premium-bg border border-white/5 p-6 shadow-inner">
+      <div className="text-[10px] text-slate-500 uppercase tracking-widest mb-5 font-bold flex items-center gap-3">
+        <div className="w-2 h-2 rounded-full bg-gradient-to-r from-violet-400 to-purple-500" />
+        ATS Compatibility Analysis
+      </div>
+      <div className="overflow-x-auto rounded-xl border border-white/10">
+        <table className="w-full min-w-[520px] border-collapse text-left">
+          <thead>
+            <tr className="bg-white/[0.04] border-b border-white/10">
+              <th className="px-4 py-3 text-[10px] font-black uppercase tracking-widest text-violet-400">Component</th>
+              <th className="px-4 py-3 text-[10px] font-black uppercase tracking-widest text-violet-400 w-28">Score</th>
+              <th className="px-4 py-3 text-[10px] font-black uppercase tracking-widest text-violet-400">Comments</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-white/5">
+            {rows.map((row) => {
+              const pct = row.max ? Math.round((row.score / row.max) * 100) : 0;
+              const tone =
+                pct >= 75 ? "text-emerald-400" : pct >= 45 ? "text-amber-400" : "text-rose-400";
+              return (
+                <tr key={row.component} className="hover:bg-white/[0.02]">
+                  <td className="px-4 py-4 text-sm font-semibold text-white whitespace-nowrap">{row.component}</td>
+                  <td className={`px-4 py-4 text-sm font-black ${tone} whitespace-nowrap`}>
+                    {row.score}/{row.max}
+                  </td>
+                  <td className="px-4 py-4 text-[13px] text-slate-400 leading-relaxed">{row.comment}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function BulletRewriteCards({ items, role }) {
+  if (!items?.length) return null;
+  return (
+    <div className="rounded-2xl bg-premium-bg border border-white/5 p-6 shadow-inner">
+      <div className="text-[10px] text-slate-500 uppercase tracking-widest mb-2 font-bold flex items-center gap-3">
+        <div className="w-2 h-2 rounded-full bg-gradient-to-r from-amber-400 to-orange-500" />
+        Bullet Rewrite Examples
+      </div>
+      <p className="text-[12px] text-slate-500 mb-5">
+        Transform data-focused bullets into impact-driven statements for {role || "your target role"}.
+      </p>
+      <div className="space-y-4">
+        {items.map((item, i) => (
+          <motion.div
+            key={i}
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: i * 0.08 }}
+            className="grid md:grid-cols-2 gap-3"
+          >
+            <div className="p-4 rounded-xl bg-rose-500/[0.06] border border-rose-500/20">
+              <div className="text-[10px] font-black uppercase tracking-widest text-rose-400 mb-2">Before</div>
+              <p className="text-[13px] text-slate-300 leading-relaxed italic">&ldquo;{item.original}&rdquo;</p>
+            </div>
+            <div className="p-4 rounded-xl bg-emerald-500/[0.06] border border-emerald-500/20">
+              <div className="text-[10px] font-black uppercase tracking-widest text-emerald-400 mb-2">
+                {item.label || "After"}
+              </div>
+              <p className="text-[13px] text-slate-200 leading-relaxed">&ldquo;{item.revised}&rdquo;</p>
+            </div>
+          </motion.div>
+        ))}
       </div>
     </div>
   );
@@ -170,23 +283,42 @@ function StockResults({ data }) {
   const riskAnalysis = data.riskAnalysis || {};
   const bullishFactors = data.bullishFactors || [];
   const bearishFactors = data.bearishFactors || [];
-  const latestNews = data.latestNews || [];
-  const chartData = data.chartData || [];
-  const [chartRange, setChartRange] = useState("5Y");
-  const filteredChartData = useMemo(() => {
-    if (!chartData.length) return [];
-    const now = new Date(chartData[chartData.length - 1].time);
-    const ranges = {
-      "1M": 30, "6M": 180, "1Y": 365, "5Y": 1825, "MAX": 99999
-    };
-    const days = ranges[chartRange] || 1825;
-    const cutoff = new Date(now);
-    cutoff.setDate(cutoff.getDate() - days);
-    return chartData.filter(d => new Date(d.time) >= cutoff);
-  }, [chartData, chartRange]);
+  const newsItems = data.newsItems?.length
+    ? data.newsItems
+    : (data.latestNews || []).map((title) => ({ title, snippet: title, url: "", source: "", date: "" }));
+  const rawChartData = data.chartData || [];
+  const [chartRange, setChartRange] = useState("1Y");
 
   const currentPrice = data.currentPrice ?? valuation["Current Price"] ?? valuation["currentPrice"];
   const marketCap = data.marketCap ?? valuation["Market Cap"] ?? valuation["marketCap"];
+
+  const chartData = useMemo(() => {
+    if (!rawChartData.length) return [];
+    const today = new Date().toISOString().slice(0, 10);
+    const last = rawChartData[rawChartData.length - 1];
+    if (currentPrice && last?.time !== today) {
+      return [...rawChartData, { time: today, value: Number(currentPrice) }];
+    }
+    if (currentPrice && last?.time === today) {
+      return [...rawChartData.slice(0, -1), { time: today, value: Number(currentPrice) }];
+    }
+    return rawChartData;
+  }, [rawChartData, currentPrice]);
+
+  const filteredChartData = useMemo(() => {
+    if (!chartData.length) return [];
+    const today = new Date();
+    today.setHours(23, 59, 59, 999);
+    const ranges = { "1M": 30, "6M": 180, "1Y": 365, "5Y": 1825, MAX: 99999 };
+    const days = ranges[chartRange] || 365;
+    const cutoff = new Date(today);
+    cutoff.setDate(cutoff.getDate() - days);
+    cutoff.setHours(0, 0, 0, 0);
+    return chartData.filter((d) => {
+      const dt = new Date(`${d.time}T12:00:00`);
+      return dt >= cutoff && dt <= today;
+    });
+  }, [chartData, chartRange]);
   const targetPrice = analystRatings["Target Mean Price"];
   const consensusRating = analystRatings["Consensus Rating"];
   const recAction = recommendation.recommendation || recommendation.rating;
@@ -221,15 +353,9 @@ function StockResults({ data }) {
       value: (
         <>
           <div className="text-3xl font-black text-white tracking-tighter">{recAction}</div>
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-2">
-            {hasValue(recConfidence) && <div className="text-[11px] text-slate-500 font-medium">Confidence: {recConfidence}%</div>}
-            {hasValue(currentPrice) && currentPrice > 0 && (
-              <div className="text-[11px] text-cyan-400 font-bold">{formatValue(currentPrice, "currency")}</div>
-            )}
-            {hasValue(marketCap) && (
-              <div className="text-[11px] text-sky-400 font-bold">{formatValue(marketCap)}</div>
-            )}
-          </div>
+          {hasValue(recConfidence) && (
+            <div className="text-[11px] text-slate-500 font-medium mt-2">Confidence: {recConfidence}%</div>
+          )}
         </>
       ),
       className: "bg-gradient-to-br from-emerald-600/10 via-teal-600/5 to-transparent border-emerald-500/20",
@@ -240,11 +366,15 @@ function StockResults({ data }) {
   if (hasValue(targetPrice)) {
     metricCards.push({
       key: "target",
-      label: "Target Price",
+      label: "Analyst Target Price",
       value: (
         <>
           <div className="text-3xl font-black text-white tracking-tighter">{formatValue(targetPrice, "currency")}</div>
-          {hasValue(consensusRating) && <div className="text-[11px] text-slate-500 mt-2">Consensus: {consensusRating}</div>}
+          {hasValue(consensusRating) && (
+            <div className="text-[11px] text-slate-500 mt-2 leading-relaxed">
+              Wall Street view: <span className="text-indigo-300 font-medium">{consensusRating}</span>
+            </div>
+          )}
         </>
       ),
       className: "bg-gradient-to-br from-indigo-600/10 via-purple-600/5 to-transparent border-indigo-500/20",
@@ -272,7 +402,7 @@ function StockResults({ data }) {
     .filter((f) => f.data && hasValue(f.data.Value));
 
   const analystFieldDefs = [
-    { label: "Consensus Rating", key: "Consensus Rating" },
+    { label: "Wall Street Consensus", key: "Consensus Rating" },
     { label: "Number of Analysts", key: "Number of Analyst Opinions" },
     { label: "Target High", key: "Target High Price", fmt: "currency" },
     { label: "Target Low", key: "Target Low Price", fmt: "currency" },
@@ -293,6 +423,37 @@ function StockResults({ data }) {
 
   return (
     <div className="space-y-8">
+      {(data.dataSources?.length > 0 || hasValue(data.dataCompleteness)) && (
+        <div className="rounded-2xl bg-premium-bg border border-white/5 p-5">
+          <div className="flex flex-wrap items-center justify-between gap-3 mb-3">
+            <div className="text-[10px] text-slate-500 uppercase tracking-widest font-black">Data Trust</div>
+            {hasValue(data.dataCompleteness) && (
+              <div className="text-[11px] text-cyan-400 font-semibold">{data.dataCompleteness}% data completeness</div>
+            )}
+          </div>
+          {hasValue(data.dataCompleteness) && (
+            <div className="h-2 rounded-full bg-white/5 mb-3 overflow-hidden">
+              <div
+                className="h-full rounded-full bg-gradient-to-r from-cyan-500 to-emerald-400 transition-all"
+                style={{ width: `${Math.min(100, data.dataCompleteness)}%` }}
+              />
+            </div>
+          )}
+          {data.dataSources?.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {data.dataSources.map((src) => (
+                <span key={src} className="px-2 py-1 text-[10px] rounded-lg bg-white/5 border border-white/10 text-slate-300">
+                  {src}
+                </span>
+              ))}
+            </div>
+          )}
+          <p className="text-[10px] text-slate-500 mt-3 leading-relaxed">
+            Based on publicly available market data. Not financial advice. Verify before investing.
+          </p>
+        </div>
+      )}
+
       {metricCards.length > 0 && (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
           {metricCards.map((card) => (
@@ -301,39 +462,32 @@ function StockResults({ data }) {
         </div>
       )}
 
-      {hasValue(recommendation.reason1) && (
+      {(recommendation.summary || recommendation.reasoning?.length || recommendation.reason1) && (
         <div className="rounded-2xl bg-gradient-to-br from-indigo-600/10 via-purple-600/5 to-transparent border border-indigo-500/20 p-6">
-          <div className="text-[10px] text-indigo-400 uppercase tracking-widest mb-4 font-black flex items-center gap-3">
+          <div className="text-[10px] text-indigo-400 uppercase tracking-widest mb-3 font-black flex items-center gap-3">
             <span className="w-2 h-2 rounded-full bg-indigo-400" />
             REASON FOR RECOMMENDATION
           </div>
+          {recommendation.summary && (
+            <p className="text-sm text-white font-medium leading-relaxed mb-4">{recommendation.summary}</p>
+          )}
           <div className="space-y-3">
-            {hasValue(recommendation.reason1) && (
-              <div className="flex items-start gap-3">
-                <span className={`mt-0.5 text-sm shrink-0 ${
+            {(recommendation.reasoning?.length ? recommendation.reasoning : [recommendation.reason1, recommendation.reason2].filter(Boolean)).map((reason, idx) => (
+              <div key={idx} className="flex items-start gap-3">
+                <span className={`mt-0.5 text-sm shrink-0 font-bold ${
                   recAction === "BUY" ? "text-emerald-400" : recAction === "SELL" ? "text-rose-400" : "text-amber-400"
                 }`}>
-                  {recAction === "BUY" ? "▲" : recAction === "SELL" ? "▼" : "◆"}
+                  {idx + 1}.
                 </span>
-                <span className="text-[13px] text-slate-300 leading-relaxed">{recommendation.reason1}</span>
+                <span className="text-[13px] text-slate-300 leading-relaxed">{reason}</span>
               </div>
-            )}
-            {hasValue(recommendation.reason2) && (
-              <div className="flex items-start gap-3">
-                <span className={`mt-0.5 text-sm shrink-0 ${
-                  recAction === "BUY" ? "text-emerald-400" : recAction === "SELL" ? "text-rose-400" : "text-amber-400"
-                }`}>
-                  {recAction === "BUY" ? "▲" : recAction === "SELL" ? "▼" : "◆"}
-                </span>
-                <span className="text-[13px] text-slate-300 leading-relaxed">{recommendation.reason2}</span>
-              </div>
-            )}
+            ))}
           </div>
         </div>
       )}
 
       {availableValuationFields.length > 0 && (
-        <div className="rounded-2xl bg-[#0B0F19] border border-white/5 p-6">
+        <div className="rounded-2xl bg-premium-bg border border-white/5 p-6">
           <div className="text-[10px] text-slate-500 uppercase tracking-widest mb-5 font-black">Valuation Metrics</div>
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
             {availableValuationFields.map((f) => (
@@ -347,7 +501,15 @@ function StockResults({ data }) {
       )}
 
       {hasValue(data.companyOverview) && (
-        <ReportBlock title="Company Overview" report={data.companyOverview} />
+        <div className="rounded-2xl bg-premium-bg border border-white/5 p-6 shadow-inner">
+          <div className="text-[10px] text-slate-500 uppercase tracking-widest mb-5 font-bold flex items-center gap-3">
+            <div className="w-2 h-2 rounded-full bg-gradient-to-r from-cyan-400 to-blue-500" />
+            Company Overview
+          </div>
+          <div className="prose prose-invert prose-sm max-w-none prose-p:text-slate-300 prose-p:leading-relaxed prose-strong:text-cyan-400">
+            <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>{data.companyOverview}</ReactMarkdown>
+          </div>
+        </div>
       )}
 
       {(bullishFactors.length > 0 || bearishFactors.length > 0) && (
@@ -362,7 +524,7 @@ function StockResults({ data }) {
       )}
 
       {availableFundamentalFields.length > 0 && (
-        <div className="rounded-2xl bg-[#0B0F19] border border-white/5 p-6">
+        <div className="rounded-2xl bg-premium-bg border border-white/5 p-6">
           <div className="text-[10px] text-slate-500 uppercase tracking-widest mb-5 font-black">Fundamental Metrics</div>
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
             {availableFundamentalFields.map((f) => (
@@ -386,7 +548,7 @@ function StockResults({ data }) {
       )}
 
       {chartData.length > 0 && (
-        <div className="rounded-2xl bg-[#0B0F19] border border-white/5 p-6">
+        <div className="rounded-2xl bg-premium-bg border border-white/5 p-6">
           <div className="flex items-center justify-between mb-5">
             <div className="text-[10px] text-slate-500 uppercase tracking-widest font-black">Price Chart</div>
             <div className="flex gap-1">
@@ -418,14 +580,14 @@ function StockResults({ data }) {
               <YAxis tick={{ fontSize: 10, fill: "#64748B" }} axisLine={false} tickLine={false} domain={["auto", "auto"]} />
               <Tooltip content={<CustomTooltip />} />
               <Area type="monotone" dataKey="value" stroke="#22D3EE" strokeWidth={2} fill="url(#colorValue)" />
-              <Brush dataKey="time" height={30} stroke="#22D3EE" fill="#0B0F19" travellerWidth={10} />
+              <Brush dataKey="time" height={30} stroke="#22D3EE" fill="#1A0A0E" travellerWidth={10} />
             </AreaChart>
           </ResponsiveContainer>
         </div>
       )}
 
       {availableRiskFields.length > 0 && (
-        <div className="rounded-2xl bg-[#0B0F19] border border-white/5 p-6">
+        <div className="rounded-2xl bg-premium-bg border border-white/5 p-6">
           <div className="text-[10px] text-slate-500 uppercase tracking-widest mb-5 font-black">Risk Analysis</div>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
             {availableRiskFields.map((f) => (
@@ -449,7 +611,7 @@ function StockResults({ data }) {
       )}
 
       {availableAnalystFields.length > 0 && (
-        <div className="rounded-2xl bg-[#0B0F19] border border-white/5 p-6">
+        <div className="rounded-2xl bg-premium-bg border border-white/5 p-6">
           <div className="text-[10px] text-slate-500 uppercase tracking-widest mb-5 font-black">Analyst Ratings</div>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
             {availableAnalystFields.map((f) => (
@@ -462,16 +624,54 @@ function StockResults({ data }) {
         </div>
       )}
 
-      {latestNews.length > 0 && (
-        <div className="rounded-2xl bg-[#0B0F19] border border-white/5 p-6">
+      {newsItems.length > 0 && (
+        <div className="rounded-2xl bg-premium-bg border border-white/5 p-6">
           <div className="text-[10px] text-slate-500 uppercase tracking-widest mb-5 font-black">Latest News</div>
           <div className="space-y-3">
-            {latestNews.filter(hasValue).map((news, i) => (
-              <div key={i} className="flex items-start gap-3 text-[13px] text-slate-300 leading-relaxed">
-                <span className="text-slate-600 mt-0.5 shrink-0">●</span>
-                <span>{news}</span>
-              </div>
-            ))}
+            {newsItems.filter((n) => n.title || n.snippet).map((news, i) => {
+              const content = (
+                <>
+                  <span className="text-cyan-500 mt-1 shrink-0 text-xs group-hover:text-cyan-400">↗</span>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[13px] text-slate-200 font-medium leading-snug group-hover:text-white">
+                      {news.title || news.snippet?.slice(0, 80)}
+                    </div>
+                    {news.snippet && news.title && news.snippet !== news.title && (
+                      <p className="text-[12px] text-slate-500 mt-1.5 leading-relaxed line-clamp-2">{news.snippet}</p>
+                    )}
+                    <div className="flex flex-wrap gap-2 mt-1.5">
+                      {news.source && <span className="text-[10px] text-slate-500">{news.source}</span>}
+                      {news.date && <span className="text-[10px] text-slate-600">{news.date}</span>}
+                    </div>
+                  </div>
+                </>
+              );
+              if (news.url) {
+                return (
+                  <a
+                    key={i}
+                    href={news.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="w-full text-left flex items-start gap-3 p-3 rounded-xl bg-white/[0.02] border border-white/5 hover:border-cyan-500/30 hover:bg-cyan-500/5 transition-all group"
+                  >
+                    {content}
+                  </a>
+                );
+              }
+              return (
+                <div
+                  key={i}
+                  className="w-full flex items-start gap-3 p-3 rounded-xl bg-white/[0.02] border border-white/5"
+                >
+                  <span className="text-slate-600 mt-1 shrink-0 text-xs">●</span>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[13px] text-slate-200 font-medium leading-snug">{news.title || news.snippet}</div>
+                    {news.snippet && news.title && <p className="text-[12px] text-slate-500 mt-1.5 leading-relaxed">{news.snippet}</p>}
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
@@ -485,6 +685,13 @@ function StockResults({ data }) {
 
 function ResumeResults({ data }) {
   if (!data) return null;
+  const atsScore = data?.atsScore ?? 0;
+  const skillMatch = data?.skillMatch ?? 0;
+  const atsLabel = atsScore >= 75 ? "STRONG" : atsScore >= 55 ? "FAIR" : "NEEDS WORK";
+  const skillLabel = skillMatch >= 65 ? "HIGH" : skillMatch >= 35 ? "MODERATE" : "LOW";
+  const breakdown = data?.scoreBreakdown || {};
+  const keywordPct = data?.keywordMatchPct;
+
   return (
     <div className="space-y-8">
       <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
@@ -493,21 +700,33 @@ function ResumeResults({ data }) {
           className="p-6 rounded-2xl bg-gradient-to-br from-violet-600/10 via-purple-600/5 to-transparent border border-violet-500/20 shadow-lg shadow-violet-500/5"
         >
           <div className="flex items-center justify-between mb-3">
-            <div className="text-[10px] text-violet-400 uppercase tracking-widest font-black">ATS Match Potential</div>
-            <div className="text-[10px] font-bold text-violet-400 px-2 py-0.5 rounded bg-violet-500/10 border border-violet-500/20">PASSED</div>
+            <div className="text-[10px] text-violet-400 uppercase tracking-widest font-black">ATS Score</div>
+            <div className="text-[10px] font-bold text-violet-400 px-2 py-0.5 rounded bg-violet-500/10 border border-violet-500/20">{atsLabel}</div>
           </div>
           <div className="flex items-baseline gap-2">
-            <div className="text-5xl font-black text-white tracking-tighter">{data?.atsScore ?? 0}</div>
+            <div className="text-5xl font-black text-white tracking-tighter">{atsScore}</div>
             <div className="text-slate-500 text-lg font-bold">/ 100</div>
           </div>
-          <div className="w-full h-2.5 rounded-full bg-black/40 mt-6 overflow-hidden border border-white/5 p-[1px]">
+          {keywordPct != null && (
+            <div className="text-[11px] text-slate-500 mt-2">Role keyword match: {keywordPct}%</div>
+          )}
+          <div className="w-full h-2.5 rounded-full bg-black/40 mt-4 overflow-hidden border border-white/5 p-[1px]">
             <motion.div
               initial={{ width: 0 }}
-              animate={{ width: `${data?.atsScore ?? 0}%` }}
+              animate={{ width: `${atsScore}%` }}
               transition={{ duration: 1, ease: "circOut" }}
               className="h-full rounded-full bg-gradient-to-r from-violet-500 to-indigo-500 shadow-[0_0_12px_rgba(139,92,246,0.5)]"
             />
           </div>
+          {Object.keys(breakdown).length > 0 && (
+            <div className="grid grid-cols-2 gap-2 mt-4">
+              {Object.entries(breakdown).map(([k, v]) => (
+                <div key={k} className="text-[10px] text-slate-500">
+                  <span className="capitalize">{k}</span>: <span className="text-violet-300 font-semibold">{v}</span>
+                </div>
+              ))}
+            </div>
+          )}
         </motion.div>
         
         <motion.div 
@@ -516,16 +735,23 @@ function ResumeResults({ data }) {
         >
           <div className="flex items-center justify-between mb-3">
             <div className="text-[10px] text-cyan-400 uppercase tracking-widest font-black">Target Role Alignment</div>
-            <div className="text-[10px] font-bold text-cyan-400 px-2 py-0.5 rounded bg-cyan-500/10 border border-cyan-500/20">HIGH</div>
+            <div className={`text-[10px] font-bold px-2 py-0.5 rounded border ${
+              skillLabel === "HIGH" ? "text-emerald-400 bg-emerald-500/10 border-emerald-500/20" :
+              skillLabel === "MODERATE" ? "text-amber-400 bg-amber-500/10 border-amber-500/20" :
+              "text-rose-400 bg-rose-500/10 border-rose-500/20"
+            }`}>{skillLabel}</div>
           </div>
           <div className="flex items-baseline gap-2">
-            <div className="text-5xl font-black text-white tracking-tighter">{data?.skillMatch ?? 0}</div>
+            <div className="text-5xl font-black text-white tracking-tighter">{skillMatch}</div>
             <div className="text-slate-500 text-lg font-bold">%</div>
           </div>
-          <div className="w-full h-2.5 rounded-full bg-black/40 mt-6 overflow-hidden border border-white/5 p-[1px]">
+          {data?.wordCount && (
+            <div className="text-[11px] text-slate-500 mt-2">{data.wordCount} words analyzed</div>
+          )}
+          <div className="w-full h-2.5 rounded-full bg-black/40 mt-4 overflow-hidden border border-white/5 p-[1px]">
             <motion.div
               initial={{ width: 0 }}
-              animate={{ width: `${data?.skillMatch ?? 0}%` }}
+              animate={{ width: `${skillMatch}%` }}
               transition={{ duration: 1, ease: "circOut" }}
               className="h-full rounded-full bg-gradient-to-r from-cyan-500 to-blue-500 shadow-[0_0_12px_rgba(6,182,212,0.5)]"
             />
@@ -538,7 +764,10 @@ function ResumeResults({ data }) {
         <ResultList title="Critical Skill Gaps" items={data?.missingSkills || []} tone="text-rose-400" marker="⚠" />
       </div>
 
-      <ReportBlock title="Executive Recruiter Insight & Feedback" report={data?.recruiterFeedback || data?.report} />
+      <AtsBreakdownTable rows={data?.atsBreakdown} />
+      <BulletRewriteCards items={data?.bulletRewrites} role={data?.role} />
+
+      <ReportBlock title="Career Coach Report" report={data?.recruiterFeedback || data?.report} />
 
       {data?.suggestions?.length > 0 && (
         <motion.div
@@ -651,7 +880,7 @@ function WebsiteAuditResults({ data, screenshot }) {
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          className="rounded-2xl bg-[#0B0F19] border border-white/5 p-6 overflow-hidden"
+          className="rounded-2xl bg-premium-bg border border-white/5 p-6 overflow-hidden"
         >
           <div className="text-[10px] text-slate-500 uppercase tracking-widest mb-4 font-black flex items-center gap-3">
             <span className="w-2 h-2 rounded-full bg-gradient-to-r from-amber-400 to-orange-500" />
@@ -667,12 +896,12 @@ function WebsiteAuditResults({ data, screenshot }) {
               transition={{ duration: 0.6, ease: "easeOut" }}
               style={{ maxHeight: 400 }}
             />
-            <div className="absolute bottom-0 left-0 right-0 h-20 bg-gradient-to-t from-[#0B0F19] to-transparent pointer-events-none" />
+            <div className="absolute bottom-0 left-0 right-0 h-20 bg-gradient-to-t from-premium-bg to-transparent pointer-events-none" />
           </div>
         </motion.div>
       )}
 
-      <div className="rounded-2xl bg-[#0B0F19] border border-white/5 p-6">
+      <div className="rounded-2xl bg-premium-bg border border-white/5 p-6">
         <div className="text-[10px] text-slate-500 uppercase tracking-widest mb-7 font-black flex items-center gap-3">
           <span className="w-2 h-2 rounded-full bg-gradient-to-r from-amber-400 to-orange-500" />
           Audit Scores
@@ -688,7 +917,7 @@ function WebsiteAuditResults({ data, screenshot }) {
       </div>
 
       {issues.length > 0 && (
-        <div className="rounded-2xl bg-[#0B0F19] border border-rose-500/10 p-6">
+        <div className="rounded-2xl bg-premium-bg border border-rose-500/10 p-6">
           <div className="text-[10px] text-rose-400 uppercase tracking-widest mb-5 font-black flex items-center gap-3">
             <span className="w-2 h-2 rounded-full bg-rose-500" />
             Issues Found ({issues.length})
@@ -711,7 +940,7 @@ function WebsiteAuditResults({ data, screenshot }) {
       )}
 
       {suggestions.length > 0 && (
-        <div className="rounded-2xl bg-[#0B0F19] border border-emerald-500/10 p-6">
+        <div className="rounded-2xl bg-premium-bg border border-emerald-500/10 p-6">
           <div className="text-[10px] text-emerald-400 uppercase tracking-widest mb-5 font-black flex items-center gap-3">
             <span className="w-2 h-2 rounded-full bg-emerald-500" />
             Suggestions ({suggestions.length})
@@ -763,7 +992,7 @@ function IdleMissionControl({ logs, providerStatus, backendConnected, onOpenSett
         </div>
       </div>
       <div className="space-y-4">
-        <div className="rounded-2xl bg-[#121826] border border-white/5 p-5 shadow-xl">
+        <div className="rounded-2xl bg-premium-surface border border-white/5 p-5 shadow-xl">
           <div className="text-[10px] text-slate-500 uppercase tracking-widest mb-4 font-black">Connectivity</div>
           <div className="flex items-center gap-3">
             <span className={`inline-block w-2.5 h-2.5 rounded-full ${backendConnected ? "bg-emerald-400 shadow-[0_0_10px_rgba(52,211,153,0.5)]" : "bg-rose-400"}`} />
@@ -778,7 +1007,7 @@ function IdleMissionControl({ logs, providerStatus, backendConnected, onOpenSett
             Manage Keys
           </button>
         </div>
-        <div className="rounded-2xl bg-[#121826] border border-white/5 p-5 shadow-xl overflow-hidden">
+        <div className="rounded-2xl bg-premium-surface border border-white/5 p-5 shadow-xl overflow-hidden">
           <div className="text-[10px] text-slate-500 uppercase tracking-widest mb-4 font-black">Active Nodes</div>
           <div className="space-y-3">
             {Object.values(AGENT_CONFIGS).map((config) => (
@@ -823,7 +1052,7 @@ export default function RightPanel({
       <div className="flex flex-wrap items-center justify-between gap-4 mb-6 pb-6 border-b border-white/5">
         <div className="flex items-center gap-4">
           <div className={`w-10 h-10 rounded-2xl bg-gradient-to-br ${config.gradient} flex items-center justify-center text-xl shadow-lg shadow-black/20`}>
-            {config.id === 'stock' ? '📈' : '📄'}
+            {config.id === "stock" ? "📈" : config.id === "website_audit" ? "🌐" : "📄"}
           </div>
           <div>
             <h3 className="text-white font-black text-base tracking-tight">{config.title}</h3>
@@ -880,7 +1109,7 @@ export default function RightPanel({
         {!results ? (
           <div className="grid lg:grid-cols-[1fr_240px] gap-8 h-full">
             <div className="space-y-8 flex flex-col h-full">
-              <div className="flex-1 rounded-2xl bg-[#0B0F19] border border-white/5 p-6 shadow-2xl flex flex-col min-h-[340px]">
+              <div className="flex-1 rounded-2xl bg-premium-bg border border-white/5 p-6 shadow-2xl flex flex-col min-h-[340px]">
                 <div className="flex items-center justify-between mb-4">
                   <div className="text-[10px] text-slate-500 uppercase tracking-widest font-black">Live Telemetry</div>
                   <div className="flex gap-1">

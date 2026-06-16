@@ -256,10 +256,86 @@ def _fetch_finnhub(symbol: str, exchange: str) -> dict[str, Any] | None:
         return None
 
 
+def _fetch_fmp(symbol: str, exchange: str) -> dict[str, Any] | None:
+    api_key = os.getenv("FMP_KEY")
+    if not api_key:
+        logger.info("[FMP] No API key — set FMP_KEY env var to enable")
+        return None
+
+    ticker = _ticker_for_exchange(symbol, exchange)
+    clean = symbol.upper().strip()
+    suffix = ""
+    if exchange.upper() == "NSE":
+        suffix = ".NS"
+    elif exchange.upper() == "BSE":
+        suffix = ".BO"
+    fmp_symbol = clean if clean.endswith((".NS", ".BO")) else f"{clean}{suffix}" if suffix else clean
+
+    logger.info("[FMP] Fetching ticker=%s | fmp_symbol=%s", ticker, fmp_symbol)
+
+    try:
+        import httpx
+    except ImportError:
+        return None
+
+    try:
+        base = "https://financialmodelingprep.com/api/v3"
+        profile_url = f"{base}/profile/{fmp_symbol}?apikey={api_key}"
+        quote_url = f"{base}/quote/{fmp_symbol}?apikey={api_key}"
+        metrics_url = f"{base}/key-metrics-ttm/{fmp_symbol}?limit=1&apikey={api_key}"
+
+        with httpx.Client(timeout=20) as client:
+            profile_resp = client.get(profile_url)
+            quote_resp = client.get(quote_url)
+            metrics_resp = client.get(metrics_url)
+
+        profile = profile_resp.json()
+        quote = quote_resp.json()
+        metrics = metrics_resp.json()
+
+        if not quote or not isinstance(quote, list) or not quote:
+            logger.warning("[FMP] No quote data for %s", fmp_symbol)
+            return None
+
+        q = quote[0]
+        p = profile[0] if isinstance(profile, list) and profile else {}
+        m = metrics[0] if isinstance(metrics, list) and metrics else {}
+
+        latest = float(q.get("price", 0))
+        if not latest:
+            return None
+
+        change_pct = float(q.get("changesPercentage", 0) or 0)
+        chart_data = [{"time": "today", "value": round(latest, 2)}]
+
+        return {
+            "available": True,
+            "provider": "Financial Modeling Prep",
+            "ticker": ticker,
+            "currentPrice": round(latest, 2),
+            "change": round(change_pct, 2),
+            "sma20": None,
+            "sma50": None,
+            "volume": q.get("volume"),
+            "marketCap": q.get("marketCap") or p.get("mktCap"),
+            "trailingPE": m.get("peRatioTTM") or p.get("pe"),
+            "sector": p.get("sector"),
+            "chartData": chart_data,
+            "news": [],
+            "companyName": p.get("companyName"),
+            "beta": p.get("beta"),
+            "eps": p.get("eps"),
+        }
+    except Exception as exc:
+        logger.error("[FMP] Exception: %s", exc, exc_info=True)
+        return None
+
+
 _PROVIDERS: list[tuple[str, Any]] = [
     ("Yahoo Finance", _fetch_yahoo),
-    ("Alpha Vantage", _fetch_alpha_vantage),
+    ("Financial Modeling Prep", _fetch_fmp),
     ("Finnhub", _fetch_finnhub),
+    ("Alpha Vantage", _fetch_alpha_vantage),
 ]
 
 

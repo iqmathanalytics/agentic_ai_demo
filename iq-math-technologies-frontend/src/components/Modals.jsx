@@ -3,22 +3,52 @@ import { motion, AnimatePresence } from "framer-motion";
 import { AGENT_CONFIGS } from "./agentsData";
 
 export const PROVIDER_MODELS = {
-  openai: ["gpt-4.1-mini", "gpt-4.1", "gpt-4o-mini", "gpt-4o"],
-  gemini: ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-2.0-flash"],
-  claude: ["claude-3-5-sonnet-latest", "claude-3-5-haiku-latest", "claude-3-opus-latest"],
-  openrouter: [
-    "openai/gpt-4o-mini",
-    "anthropic/claude-3.5-sonnet",
-    "google/gemini-flash-1.5",
-    "meta-llama/llama-3.1-70b-instruct",
+  openai: [
+    { id: "gpt-4o-mini", label: "GPT-4o Mini" },
+    { id: "gpt-4o", label: "GPT-4o" },
+    { id: "gpt-4.1-mini", label: "GPT-4.1 Mini" },
+    { id: "gpt-4.1", label: "GPT-4.1" },
+  ],
+  gemini: [
+    { id: "gemini-2.0-flash", label: "Gemini 2.0 Flash" },
+    { id: "gemini-1.5-flash", label: "Gemini 1.5 Flash" },
+    { id: "gemini-1.5-pro", label: "Gemini 1.5 Pro" },
+  ],
+  claude: [
+    { id: "claude-3-5-haiku-latest", label: "Claude 3.5 Haiku" },
+    { id: "claude-3-5-sonnet-latest", label: "Claude 3.5 Sonnet" },
+    { id: "claude-3-opus-latest", label: "Claude 3 Opus" },
   ],
   groq: [
-    "llama-3.3-70b-versatile",
-    "llama-3.1-8b-instant",
-    "deepseek-r1-distill-llama-70b",
-    "qwen-qwq-32b",
-    "gemma2-9b-it",
+    { id: "llama-3.3-70b-versatile", label: "Llama 3.3 70B (Best quality)", free_tier: true },
+    { id: "llama-3.1-8b-instant", label: "Llama 3.1 8B (Fastest)", free_tier: true },
+    { id: "meta-llama/llama-4-scout-17b-16e-instruct", label: "Llama 4 Scout 17B", free_tier: true },
+    { id: "qwen/qwen3-32b", label: "Qwen3 32B", free_tier: true },
+    { id: "moonshotai/kimi-k2-instruct", label: "Kimi K2 Instruct", free_tier: true },
+    { id: "openai/gpt-oss-20b", label: "GPT-OSS 20B", free_tier: true },
+    { id: "openai/gpt-oss-120b", label: "GPT-OSS 120B", free_tier: true },
+    { id: "groq/compound", label: "Groq Compound (experimental)", free_tier: true },
   ],
+  openrouter: [
+    { id: "openrouter/free", label: "Free Models Router (recommended)", free_tier: true },
+    { id: "meta-llama/llama-3.3-70b-instruct:free", label: "Llama 3.3 70B Instruct", free_tier: true },
+    { id: "deepseek/deepseek-r1:free", label: "DeepSeek R1", free_tier: true },
+    { id: "deepseek/deepseek-chat-v3-0324:free", label: "DeepSeek V3", free_tier: true },
+    { id: "meta-llama/llama-4-scout:free", label: "Llama 4 Scout", free_tier: true },
+    { id: "google/gemma-3-12b-it:free", label: "Gemma 3 12B", free_tier: true },
+    { id: "qwen/qwen3-4b:free", label: "Qwen3 4B", free_tier: true },
+    { id: "mistralai/mistral-small-3.1-24b-instruct:free", label: "Mistral Small 24B", free_tier: true },
+    { id: "openai/gpt-oss-20b:free", label: "GPT-OSS 20B", free_tier: true },
+    { id: "openai/gpt-oss-120b:free", label: "GPT-OSS 120B", free_tier: true },
+  ],
+};
+
+const PROVIDER_DEFAULTS = {
+  openai: "gpt-4o-mini",
+  gemini: "gemini-2.0-flash",
+  claude: "claude-3-5-haiku-latest",
+  groq: "llama-3.3-70b-versatile",
+  openrouter: "openrouter/free",
 };
 
 const PROVIDER_LABELS = {
@@ -31,6 +61,7 @@ const PROVIDER_LABELS = {
 
 const PROVIDER_BADGES = {
   groq: "Free Tier Available",
+  openrouter: "Free Tier Available",
 };
 
 const backdrop = {
@@ -65,7 +96,7 @@ function ModalWrapper({ isOpen, onClose, title, gradient, children }) {
             onClick={onClose}
           />
           <motion.div
-            className="relative w-full max-w-lg rounded-2xl border border-white/10 bg-[#0B0F19] shadow-2xl overflow-hidden"
+            className="relative w-full max-w-lg rounded-2xl border border-white/10 bg-premium-bg shadow-2xl overflow-hidden"
             variants={modalVariants}
             initial="hidden"
             animate="visible"
@@ -93,8 +124,8 @@ function ModalWrapper({ isOpen, onClose, title, gradient, children }) {
 
 function AIProviderModal({ isOpen, onClose, onSave }) {
   const [form, setForm] = useState({
-    provider: "openai",
-    model: PROVIDER_MODELS.openai[0],
+    provider: "groq",
+    model: PROVIDER_DEFAULTS.groq,
     apiKey: "",
     remember: true,
   });
@@ -103,7 +134,7 @@ function AIProviderModal({ isOpen, onClose, onSave }) {
     setForm((prev) => ({
       ...prev,
       provider,
-      model: PROVIDER_MODELS[provider][0],
+      model: PROVIDER_DEFAULTS[provider] || PROVIDER_MODELS[provider][0]?.id,
     }));
   };
 
@@ -141,7 +172,7 @@ function AIProviderModal({ isOpen, onClose, onSave }) {
             className="w-full px-3 py-2.5 rounded-lg bg-white/5 border border-white/10 text-white text-sm focus:outline-none focus:border-blue-500/50"
           >
             {Object.entries(PROVIDER_LABELS).map(([value, label]) => (
-              <option key={value} value={value} className="bg-[#121826]">
+              <option key={value} value={value} className="bg-premium-surface">
                 {label}
               </option>
             ))}
@@ -161,8 +192,8 @@ function AIProviderModal({ isOpen, onClose, onSave }) {
             className="w-full px-3 py-2.5 rounded-lg bg-white/5 border border-white/10 text-white text-sm focus:outline-none focus:border-blue-500/50"
           >
             {PROVIDER_MODELS[form.provider].map((model) => (
-              <option key={model} value={model} className="bg-[#121826]">
-                {model}
+              <option key={model.id} value={model.id} className="bg-premium-surface">
+                {model.label}{model.free_tier ? " (Free)" : ""}
               </option>
             ))}
           </select>
@@ -370,7 +401,7 @@ function StockModal({ isOpen, onClose, onSubmit }) {
             className="w-full px-3 py-2.5 rounded-lg bg-white/5 border border-white/10 text-white text-sm focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/20 transition-all appearance-none cursor-pointer"
           >
             {config.exchanges.map((ex) => (
-              <option key={ex} value={ex} className="bg-[#121826]">
+              <option key={ex} value={ex} className="bg-premium-surface">
                 {ex}
               </option>
             ))}
@@ -428,10 +459,10 @@ function WebsiteAuditModal({ isOpen, onClose, onSubmit }) {
         <div>
           <label className="block text-slate-300 text-xs font-medium mb-1.5">Website URL</label>
           <input
-            type="url"
+            type="text"
             value={url}
             onChange={(e) => setUrl(e.target.value)}
-            placeholder="https://example.com"
+            placeholder="https://www.nexpertsai.com (or nexpertsai.com)"
             className="w-full px-3 py-2.5 rounded-lg bg-white/5 border border-white/10 text-white text-sm placeholder-slate-500 focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/20 transition-all"
             required
           />

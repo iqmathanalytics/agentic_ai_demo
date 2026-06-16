@@ -3,17 +3,16 @@ from __future__ import annotations
 import json
 import logging
 
-from langchain.agents import create_agent
+from langchain_core.messages import HumanMessage, SystemMessage
 
 from app.agents.handlers import ToolEventMiddleware
+from app.agents.resume_report_builder import build_deterministic_report, extract_report_data
 from app.graphs.workflow import describe_langgraph_workflow
 from app.models.schemas import AgentEvent, AgentRunRequest
 from app.prompts.templates import RESUME_AGENT_SYSTEM_PROMPT
 from app.services.llm_factory import create_chat_model
+from app.tools.resume_scoring import normalize_resume_text
 from app.tools.resume_tools import (
-    AtsScoreOutput,
-    GrammarReviewOutput,
-    SkillMatchOutput,
     match_skills,
     parse_resume,
     review_grammar,
@@ -23,13 +22,12 @@ from app.utils.events import SendEvent, emit
 
 logger = logging.getLogger(__name__)
 
-RESUME_TOOLS = [
-    score_ats_compatibility,
-    match_skills,
-    review_grammar,
-]
+RESUME_TOOLS = [score_ats_compatibility, match_skills, review_grammar]
 
-MAX_RESUME_CHARS = 12000
+# Full text used for deterministic scoring (no truncation for accuracy)
+MAX_RESUME_CHARS = 50000
+# Excerpt sent to LLM for narrative only
+LLM_RESUME_EXCERPT = 6000
 
 RESUME_STEP_MAP = {
     "score_ats_compatibility": ("ats", "ATS Scoring Agent"),
@@ -38,109 +36,12 @@ RESUME_STEP_MAP = {
 }
 
 
-def _estimate_tokens(text: str) -> int:
-    return len(text) // 4
-
-
-def _extract_resume_result(tool_history: list[dict], report_text: str) -> dict:
-    result = {
-        "atsScore": None,
-        "skillMatch": None,
-        "strengths": [],
-        "missingSkills": [],
-        "suggestions": [],
-        "recruiterFeedback": report_text,
-        "report": report_text,
-    }
-
-    logger.info("=== _extract_resume_result: %d tool entries in history ===", len(tool_history))
-
-    for entry in tool_history:
-        raw = entry.get("result", "")
-        tool_name = entry.get("tool", "")
-
-        logger.info("Tool entry #%s: tool=%s result_len=%d preview=%s...",
-                     entry.get("tool_index", "?"), tool_name,
-                     len(raw) if raw else 0, raw[:300] if raw else "EMPTY")
-
-        if not raw:
-            logger.warning("Tool %s: empty result", tool_name)
-            continue
-
-        try:
-            parsed = json.loads(raw)
-        except (json.JSONDecodeError, TypeError) as e:
-            logger.error("Tool %s: JSON parse failed: %s  raw=%s", tool_name, e, raw[:500])
-            continue
-
-        if not isinstance(parsed, dict):
-            logger.warning("Tool %s: parsed result is not a dict, got %s", tool_name, type(parsed).__name__)
-            continue
-
-        logger.info("Tool %s: parsed JSON keys=%s", tool_name, list(parsed.keys()))
-
-        if tool_name == "score_ats_compatibility":
-            raw_ats = parsed.get("atsScore")
-            logger.info(">>> Field: atsScore -> raw_value=%s", raw_ats)
-            result["atsScore"] = raw_ats
-            issues = parsed.get("issues", [])
-            if issues:
-                result["suggestions"] = result.get("suggestions", []) + issues
-
-        elif tool_name == "match_skills":
-            raw_skill = parsed.get("skillMatch")
-            logger.info(">>> Field: skillMatch -> raw_value=%s", raw_skill)
-            result["skillMatch"] = raw_skill
-            missing = parsed.get("missingSkills", [])
-            result["missingSkills"] = missing
-            result["strengths"] = parsed.get("presentSkills", [])[:4]
-            for ms in missing:
-                result["suggestions"].append(f"Add {ms} to your skillset — it's highly relevant for the target role")
-
-        elif tool_name == "review_grammar":
-            if parsed.get("suggestions"):
-                result["suggestions"] = result.get("suggestions", []) + parsed["suggestions"]
-                logger.info(">>> review_grammar added %d suggestions", len(parsed["suggestions"]))
-
-    return result
-
-
-def _truncate_resume_text(text: str) -> str:
-    if len(text) > MAX_RESUME_CHARS:
-        logger.warning("Truncating resume from %d to %d chars", len(text), MAX_RESUME_CHARS)
-        return text[:MAX_RESUME_CHARS] + "\n\n[Resume truncated due to length]"
-    return text
-
-
-async def _run_agent_with_retry(
-    request: AgentRunRequest,
-    send: SendEvent,
-    middleware: ToolEventMiddleware,
-    user_query: str,
-    max_tokens: int,
-) -> str:
-    llm = create_chat_model(request.credentials, max_tokens=max_tokens)
-
-    token_estimate = _estimate_tokens(user_query)
-    logger.info(
-        "Resume agent: model=%s max_tokens=%d estimated_prompt_tokens=%d",
-        request.credentials.model, max_tokens, token_estimate,
-    )
-
-    agent = create_agent(
-        model=llm,
-        tools=RESUME_TOOLS,
-        system_prompt=RESUME_AGENT_SYSTEM_PROMPT,
-        middleware=[middleware],
-        name="resume_coach",
-    )
-
-    raw_result = await agent.ainvoke({"messages": [("human", user_query)]})
-    messages = raw_result.get("messages", [])
-    for msg in reversed(messages):
-        if hasattr(msg, "content") and msg.content and hasattr(msg, "type") and msg.type == "ai":
-            return msg.content
-    return ""
+def _smart_excerpt(text: str, max_chars: int = LLM_RESUME_EXCERPT) -> str:
+    if len(text) <= max_chars:
+        return text
+    head = text[: int(max_chars * 0.6)]
+    tail = text[-int(max_chars * 0.35):]
+    return f"{head}\n\n[... middle section omitted for length ...]\n\n{tail}"
 
 
 async def _run_tools_directly(
@@ -150,60 +51,90 @@ async def _run_tools_directly(
     middleware: ToolEventMiddleware,
     job_description: str = "",
 ) -> list[dict]:
-    """Fallback: call scoring tools directly if the LLM skipped them."""
-    logger.warning("Running tools directly as fallback (LLM did not call them)")
-
+    """Run all scoring tools deterministically — primary path for accurate scores."""
     for tool_name, tool_fn, args in [
-        ("score_ats_compatibility", score_ats_compatibility, {"resume_text": resume_text, "role": role, "job_description": job_description}),
-        ("match_skills", match_skills, {"resume_text": resume_text, "role": role, "job_description": job_description}),
+        ("score_ats_compatibility", score_ats_compatibility, {
+            "resume_text": resume_text, "role": role, "job_description": job_description,
+        }),
+        ("match_skills", match_skills, {
+            "resume_text": resume_text, "role": role, "job_description": job_description,
+        }),
         ("review_grammar", review_grammar, {"resume_text": resume_text}),
     ]:
         middleware.tool_index += 1
         step = RESUME_STEP_MAP.get(tool_name)
         step_id = step[0] if step else "resume_coach"
-        step_name = step[1] if step else "Resume Coach"
+        step_name = step[1] if step else "Resume Review Agent"
 
-        if step:
-            await emit(send, "agent_started", f"Running {step_name}...", progress=0,
-                       agent_id=step_id, agent_name=step_name, status="running")
-
-        await emit(send, "tool_start", f"[Direct] {tool_name}", progress=0,
+        await emit(send, "agent_started", f"Running {step_name}...", 0,
+                   agent_id=step_id, agent_name=step_name, status="running")
+        await emit(send, "tool_start", f"[Tool] {tool_name}", 0,
                    agent_id=step_id, agent_name=step_name,
-                   payload={"tool": tool_name, "args": args, "tool_index": middleware.tool_index, "direct": True})
+                   payload={"tool": tool_name, "tool_index": middleware.tool_index})
 
         try:
             raw_result = tool_fn.invoke(args)
         except Exception as exc:
-            logger.error("Direct tool %s failed: %s", tool_name, exc)
+            logger.error("Tool %s failed: %s", tool_name, exc)
             middleware.tool_history.append({
                 "tool_index": middleware.tool_index,
                 "tool": tool_name,
-                "args": args,
+                "args": {"role": role},
                 "result": json.dumps({"error": str(exc)}),
-                "result_preview": f"[Error] {exc}",
+                "result_preview": str(exc),
             })
-            if step:
-                await emit(send, "agent_failed", f"{step_name} failed: {exc}", progress=0,
-                           agent_id=step_id, agent_name=step_name, status="failed")
+            await emit(send, "agent_failed", f"{step_name} failed: {exc}", 0,
+                       agent_id=step_id, agent_name=step_name, status="failed")
             continue
 
         middleware.tool_history.append({
             "tool_index": middleware.tool_index,
             "tool": tool_name,
-            "args": args,
+            "args": {"role": role},
             "result": raw_result,
             "result_preview": raw_result[:500],
         })
 
-        await emit(send, "tool_end", f"[Direct] {tool_name} complete", progress=0,
+        await emit(send, "tool_end", f"[Tool] {tool_name} complete", 0,
                    agent_id=step_id, agent_name=step_name,
-                   payload={"tool_index": middleware.tool_index, "tool": tool_name, "direct": True})
-
-        if step:
-            await emit(send, "agent_completed", f"{step_name} complete.", progress=0,
-                       agent_id=step_id, agent_name=step_name, status="completed")
+                   payload={"tool_index": middleware.tool_index, "tool": tool_name})
+        await emit(send, "agent_completed", f"{step_name} complete.", 0,
+                   agent_id=step_id, agent_name=step_name, status="completed")
 
     return middleware.tool_history
+
+
+async def _enhance_report_with_llm(
+    request: AgentRunRequest,
+    role: str,
+    experience: str,
+    base_report: str,
+    tool_summary: dict,
+) -> str:
+    """Optional LLM polish — deterministic report is always the fallback."""
+    llm = create_chat_model(request.credentials, max_tokens=2000, streaming=False)
+    prompt = (
+        f"Enhance this resume coaching report for a {role} role ({experience} level). "
+        f"Keep ATS score {tool_summary.get('atsScore')} and skill match {tool_summary.get('skillMatch')}% unchanged. "
+        "Do NOT use markdown tables — ATS breakdown and bullet rewrites are rendered separately in the UI. "
+        "Write prose and bullet lists only: Executive Summary, Skill Gap narrative, Style feedback, and Final Verdict. "
+        "Max 400 words.\n\n"
+        f"Tool data: {json.dumps(tool_summary, default=str)[:2000]}\n\n"
+        f"Base report:\n{base_report[:4000]}"
+    )
+    try:
+        response = await llm.ainvoke([
+            SystemMessage(content=RESUME_AGENT_SYSTEM_PROMPT),
+            HumanMessage(content=prompt),
+        ])
+        content = getattr(response, "content", str(response))
+        if isinstance(content, list):
+            content = " ".join(str(p) for p in content)
+        if content and len(content) > 200:
+            return str(content)
+    except Exception as exc:
+        logger.warning("LLM report enhancement skipped: %s", exc)
+    return base_report
 
 
 async def run_resume_agent(request: AgentRunRequest, send: SendEvent) -> dict:
@@ -222,7 +153,6 @@ async def run_resume_agent(request: AgentRunRequest, send: SendEvent) -> dict:
         payload={"workflow": workflow, "tools": ["parse_resume", "score_ats_compatibility", "match_skills", "review_grammar"]},
     ))
 
-    # --- STEP 1: Parse resume DIRECTLY (never send base64 to LLM) ---
     await emit(send, "agent_started", "Parsing uploaded resume...", 8,
                agent_id="parser", agent_name="Resume Parser Agent", status="running")
 
@@ -243,106 +173,66 @@ async def run_resume_agent(request: AgentRunRequest, send: SendEvent) -> dict:
 
     if not parsed.get("available"):
         err = parsed.get("error", "Unknown parse error")
-        logger.error("Resume parse returned unavailable: %s", err)
         await emit(send, "agent_failed", f"Resume parsing error: {err}", 24,
                    agent_id="parser", agent_name="Resume Parser Agent", status="failed")
-        error_result = {
-            "error": err,
-            "report": f"## Resume Parse Failed\n\n**Error:** {err}",
-            "recruiterFeedback": "",
-        }
+        error_result = {"error": err, "report": f"## Resume Parse Failed\n\n**Error:** {err}", "recruiterFeedback": ""}
         await send(AgentEvent(type="final", message="Resume parsing failed.", progress=100, payload={"result": error_result}))
         return error_result
 
-    resume_text = parsed.get("text", "")
-    resume_text = _truncate_resume_text(resume_text)
+    resume_text = normalize_resume_text(parsed.get("text", ""))
+    original_len = len(resume_text)
+    if len(resume_text) > MAX_RESUME_CHARS:
+        logger.warning("Resume very large (%d chars), scoring uses first %d chars", original_len, MAX_RESUME_CHARS)
+        resume_text = resume_text[:MAX_RESUME_CHARS]
 
-    logger.info("Resume parsed: file=%s size=%d chars extracted=%d preview=%s...",
-                file_name, len(file_data), len(resume_text), resume_text[:200])
+    logger.info("Resume parsed: file=%s chars=%d (original=%d) preview=%s...",
+                file_name, len(resume_text), original_len, resume_text[:200])
 
     await emit(send, "agent_completed", f"Resume text extracted ({len(resume_text)} chars).", 24,
                agent_id="parser", agent_name="Resume Parser Agent", status="completed",
-               payload={"characters": len(resume_text)})
+               payload={"characters": len(resume_text), "pages": parsed.get("pages")})
 
-    # --- STEP 2-5: Agent with scoring tools (no base64) ---
     middleware = ToolEventMiddleware(send, "resume_coach", "Resume Review Agent", tool_step_map=RESUME_STEP_MAP)
 
-    jd_text = f"\n\nTarget Job Description:\n{job_description}" if job_description else ""
-    user_query = (
-        f"Review this resume for a {role} position (experience level: {experience}).{jd_text}\n\n"
-        f"Resume text:\n{resume_text}\n\n"
-        f"You MUST call score_ats_compatibility, match_skills, and review_grammar with the resume text above. "
-        f"If a job description was provided, pass it to score_ats_compatibility and match_skills. "
-        f"Call all three tools before writing your report. "
-        f"After gathering all tool results, provide a complete career coaching report "
-        f"based on the structured data from those tools. Be extremely thorough in your suggestions."
-    )
-
-    await emit(send, "agent_running", "Agent analyzing resume with scoring tools...", 26,
+    await emit(send, "agent_running", "Running ATS, skill, and grammar analysis...", 30,
                agent_id="resume_coach", agent_name="Resume Review Agent", status="running")
 
-    attempts = [
-        {"max_tokens": 2000, "label": "standard"},
-        {"max_tokens": 1000, "label": "reduced"},
-    ]
+    await _run_tools_directly(send, resume_text, role, middleware, job_description)
 
-    output_text = ""
-    last_error = None
+    ats_data, skills_data, grammar_data = {}, {}, {}
+    for entry in middleware.tool_history:
+        parsed_result = json.loads(entry["result"]) if entry.get("result") else {}
+        if entry["tool"] == "score_ats_compatibility":
+            ats_data = parsed_result
+        elif entry["tool"] == "match_skills":
+            skills_data = parsed_result
+        elif entry["tool"] == "review_grammar":
+            grammar_data = parsed_result
 
-    for attempt in attempts:
-        try:
-            middleware.tool_history.clear()
-            middleware.tool_index = 0
+    base_report = build_deterministic_report(role, experience, ats_data, skills_data, grammar_data)
+    report_data = extract_report_data(middleware.tool_history, base_report, role)
 
-            output_text = await _run_agent_with_retry(
-                request, send, middleware, user_query, attempt["max_tokens"],
-            )
-            if output_text:
-                logger.info("Resume agent succeeded with %s budget (max_tokens=%d)",
-                            attempt["label"], attempt["max_tokens"])
-                break
-        except Exception as exc:
-            exc_str = str(exc)
-            last_error = exc_str
-            is_402 = "402" in exc_str or "insufficient credits" in exc_str.lower() or "max_tokens" in exc_str.lower()
-
-            if is_402 and attempt["label"] == "standard":
-                logger.warning("402 error with max_tokens=%d, retrying with %d tokens", attempt["max_tokens"], 1000)
-                await emit(send, "log",
-                           "Resume too large for current model budget. Trying optimized analysis...",
-                           progress=50, agent_id="resume_coach", agent_name="Resume Review Agent")
-                continue
-            else:
-                logger.error("Resume agent failed on %s attempt: %s", attempt["label"], exc_str)
-                raise
-
-    if not output_text and last_error:
-        raise Exception(last_error)
-
-    # Emit running status for Career Coach Agent
     await emit(send, "agent_started", "Synthesizing career coaching insights...", 80,
                agent_id="coach", agent_name="Career Coach Agent", status="running")
 
-    # --- Log raw LLM response before parsing ---
-    logger.info("=== RAW LLM RESPONSE (first 2000 chars) ===")
-    logger.info(output_text[:2000])
-    logger.info("=== END RAW LLM RESPONSE ===")
-
-    # --- Extract result from tool history ---
-    if not middleware.tool_history:
-        logger.warning("LLM did not call any tools — running tools directly as fallback")
-        await emit(send, "log",
-                   "Falling back to direct tool execution...",
-                   progress=60, agent_id="resume_coach", agent_name="Resume Review Agent")
-        await _run_tools_directly(send, resume_text, role, middleware, job_description)
-
-    report_data = _extract_resume_result(middleware.tool_history, output_text)
+    try:
+        enhanced = await _enhance_report_with_llm(request, role, experience, base_report, report_data)
+        report_data["report"] = enhanced
+        report_data["recruiterFeedback"] = enhanced
+    except Exception as exc:
+        logger.warning("Report enhancement failed, using deterministic report: %s", exc)
 
     report_data["toolCalls"] = middleware.tool_history
+    if original_len > MAX_RESUME_CHARS:
+        report_data["suggestions"] = report_data.get("suggestions", []) + [
+            f"Large resume detected ({original_len} chars) — full content was analyzed for scoring"
+        ]
 
-    # Emit completed status for Career Coach Agent
     await emit(send, "agent_completed", "Career coaching report complete.", 95,
                agent_id="coach", agent_name="Career Coach Agent", status="completed")
+
+    logger.info("Resume review complete: ATS=%s skillMatch=%s%% role=%s",
+                report_data.get("atsScore"), report_data.get("skillMatch"), role)
 
     await send(AgentEvent(
         type="final",

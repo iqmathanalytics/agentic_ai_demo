@@ -60,6 +60,63 @@ async def fetch_website(url: str) -> dict:
         return {"success": False, "error": f"Failed to fetch website: {str(e)}"}
 
 
+async def fetch_rendered_html(url: str) -> dict:
+    """Render JS-heavy pages (SPA) and return the final HTML.
+
+    Best-effort. If Playwright is not installed or fails, returns success=False.
+    """
+    # 1) Prefer local Playwright rendering (best accuracy, but needs browser install).
+    try:
+        from playwright.async_api import async_playwright
+
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(headless=True)
+            try:
+                page = await browser.new_page(viewport={"width": 1440, "height": 900})
+                await page.goto(url, timeout=20000, wait_until="networkidle")
+                html = await page.content()
+            finally:
+                await browser.close()
+
+        if html and html.strip():
+            return {"success": True, "html": html, "rendered": True, "engine": "playwright"}
+    except Exception as e:
+        playwright_error = str(e)
+
+    # 2) Fallback to Firecrawl (remote rendering) if configured.
+    try:
+        import os
+        from firecrawl import FirecrawlApp
+
+        api_key = os.getenv("FIRECRAWL_API_KEY", "").strip()
+        if not api_key:
+            raise RuntimeError("FIRECRAWL_API_KEY not set")
+
+        app = FirecrawlApp(api_key=api_key)
+        scraped = app.scrape_url(url, params={"formats": ["html"]})
+        html = (scraped or {}).get("html") or ""
+        if html and html.strip():
+            return {"success": True, "html": html, "rendered": True, "engine": "firecrawl"}
+    except Exception as e:
+        firecrawl_error = str(e)
+
+    return {
+        "success": False,
+        "error": f"Rendered fetch unavailable. Playwright: {playwright_error if 'playwright_error' in locals() else 'not installed'}. Firecrawl: {firecrawl_error if 'firecrawl_error' in locals() else 'not configured'}.",
+    }
+
+
+def looks_like_spa_shell(html: str) -> bool:
+    if not html:
+        return False
+    lowered = html.lower()
+    if 'id="root"' in lowered and "<h1" not in lowered and "<main" not in lowered:
+        return True
+    if "vite" in lowered and "<title" in lowered and "<body" in lowered and "<h1" not in lowered:
+        return True
+    return False
+
+
 def parse_html(html: str, url: str) -> dict:
     soup = BeautifulSoup(html, "lxml")
     result = {"url": url}
@@ -94,14 +151,26 @@ def parse_html(html: str, url: str) -> dict:
     result["images"] = images
     result["total_images"] = len(images)
     result["missing_alt_count"] = missing_alt
-    result["alt_coverage_percent"] = round(((len(images) - missing_alt) / max(len(images), 1)) * 100, 1)
+    # If there are zero images, alt coverage is not applicable (treat as 100% to avoid false suggestions).
+    result["alt_coverage_percent"] = 100.0 if len(images) == 0 else round(((len(images) - missing_alt) / len(images)) * 100, 1)
 
     links = []
     for a in soup.find_all("a", href=True):
         href = a["href"].strip()
         if href and not href.startswith("#") and not href.startswith("javascript:"):
             links.append({"href": href, "text": a.get_text(strip=True)[:100]})
-    result["internal_links"] = [l for l in links if l["href"].startswith("/") or urlparse(l["href"]).netloc == urlparse(url).netloc]
+    base = urlparse(url)
+    internal = []
+    for l in links:
+        href = l["href"]
+        parsed = urlparse(href)
+        # Relative paths (about, ./about, ../about) count as internal
+        if not parsed.scheme and not parsed.netloc:
+            internal.append(l)
+            continue
+        if href.startswith("/") or parsed.netloc == base.netloc:
+            internal.append(l)
+    result["internal_links"] = internal
     result["external_links"] = [l for l in links if l not in result["internal_links"]]
     result["total_links"] = len(links)
 
@@ -144,8 +213,13 @@ def parse_html(html: str, url: str) -> dict:
     found_deprecated = [tag for tag in deprecated_tags if soup.find(tag)]
     result["deprecated_tags"] = found_deprecated
 
-    aria_attrs = sum(1 for tag in soup.find_all(attrs={re.compile(r"^aria-"): True}))
-    result["aria_attributes"] = aria_attrs
+    # Count aria-* attributes more robustly (BeautifulSoup doesn't reliably match regex keys via attrs=).
+    aria_count = 0
+    for tag in soup.find_all(True):
+        for attr in (tag.attrs or {}).keys():
+            if isinstance(attr, str) and attr.lower().startswith("aria-"):
+                aria_count += 1
+    result["aria_attributes"] = aria_count
 
     buttons = soup.find_all("button")
     buttons_without_text = sum(1 for b in buttons if not b.get_text(strip=True) and not b.get("aria-label"))
@@ -403,6 +477,13 @@ async def run_website_audit(url: str) -> dict:
     if not fetch_result["success"]:
         return _error_response(target_url, [fetch_result["error"]])
 
+    rendered_attempted = False
+    if looks_like_spa_shell(fetch_result.get("html", "")):
+        rendered = await fetch_rendered_html(target_url)
+        rendered_attempted = True
+        if rendered.get("success"):
+            fetch_result["html"] = rendered["html"]
+
     parsed = parse_html(fetch_result["html"], target_url)
 
     seo_score = score_on_page_seo(parsed)
@@ -413,6 +494,9 @@ async def run_website_audit(url: str) -> dict:
 
     issues = generate_issues(parsed)
     suggestions = generate_suggestions(parsed)
+    if rendered_attempted and parsed.get("h1_count", 0) == 0:
+        issues.insert(0, "Page appears to be JavaScript-rendered (SPA). Rendered HTML capture was unavailable, so analysis may miss headings/content.")
+        suggestions.insert(0, "Enable JS-rendered audits: set FIRECRAWL_API_KEY (recommended) or install Playwright browsers (playwright install chromium).")
 
     return {
         "url": target_url,

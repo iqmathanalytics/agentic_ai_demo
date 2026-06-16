@@ -13,7 +13,7 @@ load_dotenv()
 
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="IQ Math AI Agent Workspace", version="1.0.0")
+app = FastAPI(title="Nexperts Academy AI Agent Workspace", version="1.0.0")
 
 allowed_origins = os.getenv("ALLOWED_ORIGINS", "*")
 
