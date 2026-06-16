@@ -484,10 +484,91 @@ function StockResults({ data }) {
 }
 
 function ResumeResults({ data }) {
+  if (!data) return null;
   return (
     <div className="space-y-8">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+        <motion.div 
+          whileHover={{ y: -4 }}
+          className="p-6 rounded-2xl bg-gradient-to-br from-violet-600/10 via-purple-600/5 to-transparent border border-violet-500/20 shadow-lg shadow-violet-500/5"
+        >
+          <div className="flex items-center justify-between mb-3">
+            <div className="text-[10px] text-violet-400 uppercase tracking-widest font-black">ATS Match Potential</div>
+            <div className="text-[10px] font-bold text-violet-400 px-2 py-0.5 rounded bg-violet-500/10 border border-violet-500/20">PASSED</div>
+          </div>
+          <div className="flex items-baseline gap-2">
+            <div className="text-5xl font-black text-white tracking-tighter">{data?.atsScore ?? 0}</div>
+            <div className="text-slate-500 text-lg font-bold">/ 100</div>
+          </div>
+          <div className="w-full h-2.5 rounded-full bg-black/40 mt-6 overflow-hidden border border-white/5 p-[1px]">
+            <motion.div
+              initial={{ width: 0 }}
+              animate={{ width: `${data?.atsScore ?? 0}%` }}
+              transition={{ duration: 1, ease: "circOut" }}
+              className="h-full rounded-full bg-gradient-to-r from-violet-500 to-indigo-500 shadow-[0_0_12px_rgba(139,92,246,0.5)]"
+            />
+          </div>
+        </motion.div>
+        
+        <motion.div 
+          whileHover={{ y: -4 }}
+          className="p-6 rounded-2xl bg-gradient-to-br from-cyan-600/10 via-blue-600/5 to-transparent border border-cyan-500/20 shadow-lg shadow-cyan-500/5"
+        >
+          <div className="flex items-center justify-between mb-3">
+            <div className="text-[10px] text-cyan-400 uppercase tracking-widest font-black">Target Role Alignment</div>
+            <div className="text-[10px] font-bold text-cyan-400 px-2 py-0.5 rounded bg-cyan-500/10 border border-cyan-500/20">HIGH</div>
+          </div>
+          <div className="flex items-baseline gap-2">
+            <div className="text-5xl font-black text-white tracking-tighter">{data?.skillMatch ?? 0}</div>
+            <div className="text-slate-500 text-lg font-bold">%</div>
+          </div>
+          <div className="w-full h-2.5 rounded-full bg-black/40 mt-6 overflow-hidden border border-white/5 p-[1px]">
+            <motion.div
+              initial={{ width: 0 }}
+              animate={{ width: `${data?.skillMatch ?? 0}%` }}
+              transition={{ duration: 1, ease: "circOut" }}
+              className="h-full rounded-full bg-gradient-to-r from-cyan-500 to-blue-500 shadow-[0_0_12px_rgba(6,182,212,0.5)]"
+            />
+          </div>
+        </motion.div>
+      </div>
+
+      <div className="grid md:grid-cols-2 gap-5">
+        <ResultList title="Top Candidate Strengths" items={data?.strengths || []} tone="text-emerald-400" marker="★" />
+        <ResultList title="Critical Skill Gaps" items={data?.missingSkills || []} tone="text-rose-400" marker="⚠" />
+      </div>
 
       <ReportBlock title="Executive Recruiter Insight & Feedback" report={data?.recruiterFeedback || data?.report} />
+
+      {data?.suggestions?.length > 0 && (
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="p-6 rounded-2xl bg-gradient-to-br from-amber-600/5 via-orange-600/5 to-transparent border border-amber-500/20 shadow-lg"
+        >
+          <div className="flex items-center gap-3 mb-5">
+            <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-amber-500 to-orange-500 flex items-center justify-center text-sm shadow-lg">⚡</div>
+            <div>
+              <div className="text-[10px] text-amber-400 uppercase tracking-widest font-black">Profile Improvement Plan</div>
+              <div className="text-[11px] text-slate-500">Actionable steps to boost your ATS & skill match scores</div>
+            </div>
+          </div>
+          <div className="space-y-3">
+            {data.suggestions.map((item, i) => (
+              <motion.div
+                key={i}
+                initial={{ opacity: 0, x: -10 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: i * 0.05 }}
+                className="flex items-start gap-3 p-3.5 rounded-xl bg-white/[0.03] border border-white/5 hover:border-amber-500/30 transition-all"
+              >
+                <span className="w-6 h-6 rounded-lg bg-amber-500/10 text-amber-400 flex items-center justify-center text-xs font-black shrink-0 mt-0.5">{i + 1}</span>
+                <span className="text-[13px] text-slate-300 leading-relaxed">{item}</span>
+              </motion.div>
+            ))}
+          </div>
+        </motion.div>
+      )}
     </div>
   );
 }

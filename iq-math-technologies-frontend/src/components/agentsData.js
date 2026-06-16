@@ -152,7 +152,14 @@ export function generateMockResults(type) {
     };
   }
   if (type === "resume") {
-    return {};
+    return {
+      atsScore: 72,
+      skillMatch: 65,
+      strengths: ["Python", "RAG", "LLM", "Vector Database", "FastAPI"],
+      missingSkills: ["LangChain", "MLOps"],
+      suggestions: ["Add quantifiable achievements", "Include a professional summary", "Use stronger action verbs"],
+      recruiterFeedback: "# Resume Review\n\n## Executive Summary\nStrong technical foundation with good project experience.\n\n## Key Strengths\n- **Python** – Proficient\n- **RAG Systems** – Hands-on experience\n- **LLM Integration** – Applied in projects\n\n## Areas for Improvement\n- Add LangChain expertise\n- Include MLOps practices\n\n## Final Verdict\n**HIRE** – Strong candidate with relevant skills.",
+    };
   }
   return {};
 }

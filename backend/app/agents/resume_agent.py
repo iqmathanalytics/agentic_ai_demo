@@ -11,17 +11,20 @@ from app.models.schemas import AgentEvent, AgentRunRequest
 from app.prompts.templates import RESUME_AGENT_SYSTEM_PROMPT
 from app.services.llm_factory import create_chat_model
 from app.tools.resume_tools import (
+    AtsScoreOutput,
     GrammarReviewOutput,
     SkillMatchOutput,
     match_skills,
     parse_resume,
     review_grammar,
+    score_ats_compatibility,
 )
 from app.utils.events import SendEvent, emit
 
 logger = logging.getLogger(__name__)
 
 RESUME_TOOLS = [
+    score_ats_compatibility,
     match_skills,
     review_grammar,
 ]
@@ -29,6 +32,7 @@ RESUME_TOOLS = [
 MAX_RESUME_CHARS = 12000
 
 RESUME_STEP_MAP = {
+    "score_ats_compatibility": ("ats", "ATS Scoring Agent"),
     "match_skills": ("skill", "Skill Match Agent"),
     "review_grammar": ("grammar", "Grammar Review Agent"),
 }
@@ -40,6 +44,11 @@ def _estimate_tokens(text: str) -> int:
 
 def _extract_resume_result(tool_history: list[dict], report_text: str) -> dict:
     result = {
+        "atsScore": None,
+        "skillMatch": None,
+        "strengths": [],
+        "missingSkills": [],
+        "suggestions": [],
         "recruiterFeedback": report_text,
         "report": report_text,
     }
@@ -70,10 +79,27 @@ def _extract_resume_result(tool_history: list[dict], report_text: str) -> dict:
 
         logger.info("Tool %s: parsed JSON keys=%s", tool_name, list(parsed.keys()))
 
-        if tool_name == "review_grammar":
+        if tool_name == "score_ats_compatibility":
+            raw_ats = parsed.get("atsScore")
+            logger.info(">>> Field: atsScore -> raw_value=%s", raw_ats)
+            result["atsScore"] = raw_ats
+            issues = parsed.get("issues", [])
+            if issues:
+                result["suggestions"] = result.get("suggestions", []) + issues
+
+        elif tool_name == "match_skills":
+            raw_skill = parsed.get("skillMatch")
+            logger.info(">>> Field: skillMatch -> raw_value=%s", raw_skill)
+            result["skillMatch"] = raw_skill
+            missing = parsed.get("missingSkills", [])
+            result["missingSkills"] = missing
+            result["strengths"] = parsed.get("presentSkills", [])[:4]
+            for ms in missing:
+                result["suggestions"].append(f"Add {ms} to your skillset — it's highly relevant for the target role")
+
+        elif tool_name == "review_grammar":
             if parsed.get("suggestions"):
-                result.setdefault("suggestions", [])
-                result["suggestions"].extend(parsed["suggestions"])
+                result["suggestions"] = result.get("suggestions", []) + parsed["suggestions"]
                 logger.info(">>> review_grammar added %d suggestions", len(parsed["suggestions"]))
 
     return result
@@ -128,6 +154,7 @@ async def _run_tools_directly(
     logger.warning("Running tools directly as fallback (LLM did not call them)")
 
     for tool_name, tool_fn, args in [
+        ("score_ats_compatibility", score_ats_compatibility, {"resume_text": resume_text, "role": role, "job_description": job_description}),
         ("match_skills", match_skills, {"resume_text": resume_text, "role": role, "job_description": job_description}),
         ("review_grammar", review_grammar, {"resume_text": resume_text}),
     ]:
@@ -187,12 +214,12 @@ async def run_resume_agent(request: AgentRunRequest, send: SendEvent) -> dict:
     experience = payload.get("experience", "")
     job_description = payload.get("jobDescription", "")
 
-    workflow = describe_langgraph_workflow(["parser", "skill", "grammar", "coach"])
+    workflow = describe_langgraph_workflow(["parser", "ats", "skill", "grammar", "coach"])
     await send(AgentEvent(
         type="run_started",
         message=f"Resume review started for role: {role}.",
         progress=2,
-        payload={"workflow": workflow, "tools": ["parse_resume", "match_skills", "review_grammar"]},
+        payload={"workflow": workflow, "tools": ["parse_resume", "score_ats_compatibility", "match_skills", "review_grammar"]},
     ))
 
     # --- STEP 1: Parse resume DIRECTLY (never send base64 to LLM) ---
@@ -244,9 +271,9 @@ async def run_resume_agent(request: AgentRunRequest, send: SendEvent) -> dict:
     user_query = (
         f"Review this resume for a {role} position (experience level: {experience}).{jd_text}\n\n"
         f"Resume text:\n{resume_text}\n\n"
-        f"You MUST call match_skills and review_grammar with the resume text above. "
-        f"If a job description was provided, pass it to match_skills. "
-        f"Call both tools before writing your report. "
+        f"You MUST call score_ats_compatibility, match_skills, and review_grammar with the resume text above. "
+        f"If a job description was provided, pass it to score_ats_compatibility and match_skills. "
+        f"Call all three tools before writing your report. "
         f"After gathering all tool results, provide a complete career coaching report "
         f"based on the structured data from those tools. Be extremely thorough in your suggestions."
     )
