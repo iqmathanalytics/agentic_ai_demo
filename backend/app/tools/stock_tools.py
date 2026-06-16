@@ -306,16 +306,22 @@ def get_analyst_ratings(symbol: str, exchange: str) -> str:
     info = data["info"]
     
     result = {
-        "Consensus Rating": info.get("recommendationKey", "N/A").replace("_", " ").title(),
+        "Consensus Rating": (info.get("recommendationKey") or "N/A").replace("_", " ").title(),
         "Target Mean Price": info.get("targetMeanPrice"),
         "Target High Price": info.get("targetHighPrice"),
         "Target Low Price": info.get("targetLowPrice"),
-        "Number of Analyst Opinions": info.get("numberOfAnalystOpinions")
+        "Number of Analyst Opinions": info.get("numberOfAnalystOpinions"),
     }
     enhanced = _analyst_consensus(ticker)
     if enhanced.get("Analyst Counts"):
         result["_analystCounts"] = enhanced["Analyst Counts"]
         result["_buyRatio"] = enhanced.get("Buy Ratio")
+    elif enhanced.get("Consensus Rating") and enhanced.get("Consensus Rating") != "N/A":
+        result["Consensus Rating"] = enhanced["Consensus Rating"]
+        result["Target Mean Price"] = result.get("Target Mean Price") or enhanced.get("Target Mean Price")
+        result["Target High Price"] = result.get("Target High Price") or enhanced.get("Target High Price")
+        result["Target Low Price"] = result.get("Target Low Price") or enhanced.get("Target Low Price")
+        result["Number of Analyst Opinions"] = result.get("Number of Analyst Opinions") or enhanced.get("Number of Analyst Opinions")
     return result
 
 

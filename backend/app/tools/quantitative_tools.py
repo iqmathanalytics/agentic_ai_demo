@@ -425,13 +425,24 @@ def investment_recommendation(score_data: dict, fair_value_data: dict, analyst_d
 
 
 def get_analyst_consensus(ticker: str) -> dict:
+    from .stock_data_provider import fetch_analyst_consensus
+
+    fmp_result = fetch_analyst_consensus(ticker)
+    if fmp_result:
+        return fmp_result
+
     try:
         import yfinance as yf
+
         t = yf.Ticker(ticker)
         recs = t.recommendations
-        info = t.info
+        info = t.info or {}
     except Exception as e:
-        logger.error(f"Failed to fetch analyst data: {e}")
+        msg = str(e).lower()
+        if "rate" in msg or "too many" in msg:
+            logger.info("Yahoo analyst data rate-limited for %s — using available profile data only", ticker)
+        else:
+            logger.warning("Yahoo analyst data unavailable for %s: %s", ticker, e)
         return {}
 
     result = {
@@ -439,7 +450,7 @@ def get_analyst_consensus(ticker: str) -> dict:
         "Target Mean Price": info.get("targetMeanPrice"),
         "Target High Price": info.get("targetHighPrice"),
         "Target Low Price": info.get("targetLowPrice"),
-        "Number of Analyst Opinions": info.get("numberOfAnalystOpinions")
+        "Number of Analyst Opinions": info.get("numberOfAnalystOpinions"),
     }
 
     if recs is not None and not recs.empty:
@@ -469,7 +480,7 @@ def get_analyst_consensus(ticker: str) -> dict:
                     total = sum(grade_map.values())
                     result["Buy Ratio"] = round(grade_map.get("buy", 0) / total * 100, 1) if total > 0 else 0
         except Exception as e:
-            logger.warning(f"Failed to parse recommendations: {e}")
+            logger.warning("Failed to parse Yahoo recommendations for %s: %s", ticker, e)
 
     return result
 

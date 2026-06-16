@@ -303,6 +303,73 @@ def _maybe_enrich_history(bundle: dict[str, Any], symbol: str, exchange: str, pe
         bundle["history"] = av_hist.tail(252 * 5 if period == "5y" else 252)
 
 
+def fetch_analyst_consensus(ticker: str) -> dict[str, Any]:
+    """Analyst ratings via FMP stable API (cloud-safe; avoids Yahoo rate limits)."""
+    api_key = os.getenv("FMP_KEY")
+    if not api_key:
+        return {}
+
+    fmp_sym = ticker.upper().strip()
+    try:
+        import httpx
+    except ImportError:
+        return {}
+
+    base = "https://financialmodelingprep.com/stable"
+
+    try:
+        with httpx.Client(timeout=20) as client:
+            grades_resp = client.get(
+                f"{base}/grades-consensus",
+                params={"symbol": fmp_sym, "apikey": api_key},
+            )
+            targets_resp = client.get(
+                f"{base}/price-target-consensus",
+                params={"symbol": fmp_sym, "apikey": api_key},
+            )
+    except Exception as exc:
+        logger.warning("[FMP] analyst fetch failed for %s: %s", fmp_sym, exc)
+        return {}
+
+    grades = grades_resp.json() if grades_resp.status_code == 200 else []
+    targets = targets_resp.json() if targets_resp.status_code == 200 else []
+    g = grades[0] if isinstance(grades, list) and grades else {}
+    t = targets[0] if isinstance(targets, list) and targets else {}
+
+    if not g and not t:
+        return {}
+
+    strong_buy = int(g.get("strongBuy") or 0)
+    buy = int(g.get("buy") or 0)
+    hold = int(g.get("hold") or 0)
+    sell = int(g.get("sell") or 0)
+    strong_sell = int(g.get("strongSell") or 0)
+    total = strong_buy + buy + hold + sell + strong_sell
+
+    grade_map = {
+        "buy": strong_buy + buy,
+        "hold": hold,
+        "sell": sell + strong_sell,
+    }
+    grade_map = {k: v for k, v in grade_map.items() if v > 0}
+
+    consensus_raw = (g.get("consensus") or "").strip()
+    consensus_rating = consensus_raw.title() if consensus_raw else "N/A"
+
+    result: dict[str, Any] = {
+        "Consensus Rating": consensus_rating,
+        "Target Mean Price": _safe_float(t.get("targetConsensus")) or _safe_float(t.get("targetMedian")),
+        "Target High Price": _safe_float(t.get("targetHigh")),
+        "Target Low Price": _safe_float(t.get("targetLow")),
+        "Number of Analyst Opinions": total or None,
+    }
+    if grade_map:
+        result["Analyst Counts"] = grade_map
+        if total > 0:
+            result["Buy Ratio"] = round(grade_map.get("buy", 0) / total * 100, 1)
+    return result
+
+
 def get_stock_info(symbol: str, exchange: str) -> tuple[dict | None, str | None]:
     bundle = get_stock_bundle(symbol, exchange, period="1y")
     if not bundle:
