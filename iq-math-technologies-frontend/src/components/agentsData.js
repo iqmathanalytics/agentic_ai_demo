@@ -152,26 +152,7 @@ export function generateMockResults(type) {
     };
   }
   if (type === "resume") {
-    return {
-      atsScore: 72,
-      skillMatch: 65,
-      strengths: [
-        "Strong technical background in Python",
-        "Good project portfolio",
-        "Clear career progression",
-      ],
-      weaknesses: [
-        "Missing key certifications",
-        "Weak action verbs used",
-        "Formatting inconsistencies",
-      ],
-      missingSkills: ["Docker", "Kubernetes", "CI/CD", "GraphQL"],
-      suggestions: [
-        "Add quantifiable achievements",
-        "Include a professional summary",
-        "Optimize for ATS keywords",
-      ],
-    };
+    return {};
   }
   return {};
 }

@@ -324,7 +324,9 @@ BUY: Strong fundamentals, Positive earnings growth, Significant upside to target
 HOLD: Mixed fundamentals, Fair valuation, Limited upside
 SELL: Weak fundamentals, Significant downside risk, Poor growth outlook
 
-Generate a complete structured equity research report. Use the pre-computed recommendation as the primary basis. Ensure you explicitly state the Current Price and Market Cap in your detailed report near your final recommendation."""
+Generate a complete structured equity research report. Use the pre-computed recommendation as the primary basis. Ensure you explicitly state the Current Price and Market Cap in your detailed report near your final recommendation.
+
+IMPORTANT: The 'report' field must be structured as KEY POINTS / BULLET POINTS — not paragraphs. Each key point should start with a bold heading (e.g., **Revenue Growth:**) followed by a concise bullet explanation. Use markdown bullet lists extensively. Avoid long paragraphs. Every section of the report should be scannable key takeaways."""
 
         try:
             structured_llm = llm.with_structured_output(EquityReport)
@@ -361,8 +363,9 @@ Generate a complete structured equity research report. Use the pre-computed reco
             )
 
         # Ensure Current Price and Market Cap from raw market data are in valuation and top-level fields
-        current_price_val = market.get("Current Price")
-        market_cap_val = market.get("Market Cap")
+        market_dict = market if isinstance(market, dict) else {}
+        current_price_val = market_dict.get("Current Price")
+        market_cap_val = market_dict.get("Market Cap")
         
         if current_price_val is not None:
             result.valuation["Current Price"] = current_price_val

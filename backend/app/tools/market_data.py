@@ -54,7 +54,12 @@ def _fetch_yahoo(symbol: str, exchange: str) -> dict[str, Any] | None:
             logger.warning("[Yahoo Finance] Empty history for %s", ticker)
             return None
 
-        closes = [float(v) for v in history["Close"].tail(60).tolist()]
+        clean_history = history.dropna(subset=["Close"])
+        if clean_history.empty:
+            logger.warning("[Yahoo Finance] All Close values are NaN for %s", ticker)
+            return None
+
+        closes = [float(v) for v in clean_history["Close"].tail(60).tolist()]
         latest = closes[-1]
         previous = closes[-2] if len(closes) > 1 else latest
         change_pct = ((latest - previous) / previous) * 100 if previous else 0
@@ -63,7 +68,7 @@ def _fetch_yahoo(symbol: str, exchange: str) -> dict[str, Any] | None:
 
         chart_data = [
             {"time": str(index.date()), "value": round(float(row["Close"]), 2)}
-            for index, row in history.iterrows()
+            for index, row in clean_history.iterrows()
         ]
 
         volume = int(history["Volume"].tail(1).iloc[0])

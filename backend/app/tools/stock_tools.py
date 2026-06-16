@@ -58,7 +58,7 @@ def search_latest_news(company_name: str) -> str:
     query = f"{company_name} latest news, earnings report, analyst rating"
     return perform_search(query, search_type="news")
 
-def _get_yfinance_data(ticker: str, period: str = "1y") -> dict:
+def _get_yfinance_data(ticker: str, period: str = "1y") -> dict | None:
     try:
         import yfinance as yf
         t = yf.Ticker(ticker)
@@ -73,7 +73,7 @@ def _build_chart_data(ticker: str) -> list:
     data = _get_yfinance_data(ticker, period="5y")
     if not data or data["history"].empty:
         return []
-    history = data["history"]
+    history = data["history"].dropna(subset=["Close"])
     chart = []
     for index, row in history.iterrows():
         chart.append({
@@ -85,7 +85,7 @@ def _build_chart_data(ticker: str) -> list:
 from .market_data import collect_market_data
 
 @tool
-def get_market_metrics(symbol: str, exchange: str) -> str:
+def get_market_metrics(symbol: str, exchange: str) -> dict:
     """Fetches real-time market data including Price, Market Cap, Enterprise Value, Revenue, EPS, EBITDA, PE Ratio, Forward PE, PEG, Dividend Yield, Beta, 52W High/Low, Avg Volume, and 5-year chart data.
     Uses Finnhub -> Alpha Vantage -> Yahoo Finance.
     """
@@ -109,10 +109,11 @@ def get_market_metrics(symbol: str, exchange: str) -> str:
     info = data["info"]
     history = data["history"]
     
-    current_price = history["Close"].iloc[-1] if not history.empty else info.get("currentPrice")
+    clean_closes = history["Close"].dropna() if not history.empty else []
+    current_price = round(float(clean_closes.iloc[-1]), 2) if len(clean_closes) > 0 else info.get("currentPrice")
     
     metrics = {
-        "Current Price": current_price or fallback_data.get("currentPrice"),
+        "Current Price": current_price if current_price is not None else fallback_data.get("currentPrice"),
         "Market Cap": info.get("marketCap") or fallback_data.get("marketCap"),
         "Enterprise Value": info.get("enterpriseValue"),
         "Revenue": info.get("totalRevenue"),
@@ -251,7 +252,7 @@ def calculate_risk(symbol: str, exchange: str) -> str:
         return {"error": "Risk data unavailable."}
         
     history = data["history"]
-    closes = history["Close"].tolist()
+    closes = history["Close"].dropna().tolist()
     
     import numpy as np
     returns = np.diff(closes) / closes[:-1]

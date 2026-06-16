@@ -221,7 +221,7 @@ def calculate_fair_value(info: dict) -> dict:
         except Exception as e:
             logger.warning(f"Valuation method failed: {e}")
 
-    current_price = info.get("currentPrice") or info.get("regularMarketPrice")
+    current_price = info.get("currentPrice") if info.get("currentPrice") is not None else info.get("regularMarketPrice")
 
     if methods:
         fair_vals = [m["fairValue"] for m in methods if m.get("fairValue")]
@@ -346,7 +346,7 @@ def calculate_confidence(info: dict, score_data: dict) -> int:
     data_completeness = metrics_available / metrics_total
     confidence += int(data_completeness * 20)
 
-    current_price = info.get("currentPrice") or info.get("regularMarketPrice")
+    current_price = info.get("currentPrice") if info.get("currentPrice") is not None else info.get("regularMarketPrice")
     if info.get("targetMeanPrice") and current_price:
         analyst_range = info.get("targetHighPrice", current_price) - info.get("targetLowPrice", current_price)
         if analyst_range > 0 and current_price > 0:
@@ -569,7 +569,7 @@ def build_analysis_context(symbol: str, exchange: str) -> dict:
     rec = investment_recommendation(score_data, fv_data, analyst_data)
     peers = discover_peers(info)
 
-    current_price = info.get("currentPrice") or info.get("regularMarketPrice")
+    current_price = info.get("currentPrice") if info.get("currentPrice") is not None else info.get("regularMarketPrice")
     market_cap = info.get("marketCap")
     pe_ratio = info.get("trailingPE")
     eps = info.get("trailingEps")
