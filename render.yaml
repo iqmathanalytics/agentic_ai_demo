@@ -10,15 +10,15 @@ services:
       - key: PYTHON_VERSION
         value: "3.11.0"
       - key: ALLOWED_ORIGINS
-        value: https://nexperts-academy.pages.dev,https://www.nexpertsai.com,http://localhost:5173,http://127.0.0.1:5173
+        value: https://agentic-ai-demo.pages.dev,https://nexperts-academy.pages.dev,https://www.nexpertsai.com,http://localhost:5173,http://127.0.0.1:5173
       - key: ALPHA_VANTAGE_KEY
         value: QHFN2F26OZ9SV2IX
       - key: FINNHUB_KEY
         value: d8ki25pr01qjgd7050igd8ki25pr01qjgd7050j0
-      - key: TAVILY_API_KEY
-        value: ""           # set in Render dashboard
-      - key: SERPER_API_KEY
-        value: ""           # set in Render dashboard
       - key: FMP_KEY
-        value: ""           # set in Render dashboard
+        sync: false
+      - key: TAVILY_API_KEY
+        sync: false
+      - key: SERPER_API_KEY
+        sync: false
     healthCheckPath: /health

@@ -279,34 +279,41 @@ def _fetch_fmp(symbol: str, exchange: str) -> dict[str, Any] | None:
         return None
 
     try:
-        base = "https://financialmodelingprep.com/api/v3"
-        profile_url = f"{base}/profile/{fmp_symbol}?apikey={api_key}"
-        quote_url = f"{base}/quote/{fmp_symbol}?apikey={api_key}"
-        metrics_url = f"{base}/key-metrics-ttm/{fmp_symbol}?limit=1&apikey={api_key}"
-
+        base = "https://financialmodelingprep.com/stable"
         with httpx.Client(timeout=20) as client:
-            profile_resp = client.get(profile_url)
-            quote_resp = client.get(quote_url)
-            metrics_resp = client.get(metrics_url)
+            profile_resp = client.get(f"{base}/profile", params={"symbol": fmp_symbol, "apikey": api_key})
+            quote_resp = client.get(f"{base}/quote", params={"symbol": fmp_symbol, "apikey": api_key})
+            metrics_resp = client.get(
+                f"{base}/key-metrics-ttm",
+                params={"symbol": fmp_symbol, "apikey": api_key},
+            )
+            history_resp = client.get(
+                f"{base}/historical-price-eod/full",
+                params={"symbol": fmp_symbol, "apikey": api_key},
+            )
 
         profile = profile_resp.json()
         quote = quote_resp.json()
         metrics = metrics_resp.json()
+        history_raw = history_resp.json()
 
-        if not quote or not isinstance(quote, list) or not quote:
+        p = profile[0] if isinstance(profile, list) and profile else {}
+        q = quote[0] if isinstance(quote, list) and quote else {}
+        m = metrics[0] if isinstance(metrics, list) and metrics else {}
+
+        latest = float(q.get("price", 0) or p.get("price", 0) or 0)
+        if not latest:
             logger.warning("[FMP] No quote data for %s", fmp_symbol)
             return None
 
-        q = quote[0]
-        p = profile[0] if isinstance(profile, list) and profile else {}
-        m = metrics[0] if isinstance(metrics, list) and metrics else {}
-
-        latest = float(q.get("price", 0))
-        if not latest:
-            return None
-
-        change_pct = float(q.get("changesPercentage", 0) or 0)
-        chart_data = [{"time": "today", "value": round(latest, 2)}]
+        change_pct = float(q.get("changesPercentage", 0) or q.get("changePercentage", 0) or 0)
+        chart_data = []
+        rows = history_raw if isinstance(history_raw, list) else []
+        for row in rows[-60:]:
+            if isinstance(row, dict) and row.get("date") and row.get("close") is not None:
+                chart_data.append({"time": row["date"], "value": round(float(row["close"]), 2)})
+        if not chart_data:
+            chart_data = [{"time": "today", "value": round(latest, 2)}]
 
         return {
             "available": True,
@@ -317,8 +324,8 @@ def _fetch_fmp(symbol: str, exchange: str) -> dict[str, Any] | None:
             "sma20": None,
             "sma50": None,
             "volume": q.get("volume"),
-            "marketCap": q.get("marketCap") or p.get("mktCap"),
-            "trailingPE": m.get("peRatioTTM") or p.get("pe"),
+            "marketCap": q.get("marketCap") or p.get("marketCap"),
+            "trailingPE": m.get("peRatioTTM"),
             "sector": p.get("sector"),
             "chartData": chart_data,
             "news": [],
@@ -353,7 +360,12 @@ def collect_market_data(symbol: str, exchange: str) -> dict[str, Any]:
         return {"available": False, "error": "Exchange is required."}
 
     errors: list[str] = []
-    for name, fetch_fn in _PROVIDERS:
+    providers = list(_PROVIDERS)
+    if os.getenv("FMP_KEY"):
+        # yfinance is often blocked on cloud hosts — prefer FMP when configured
+        providers.sort(key=lambda item: 0 if item[0] == "Financial Modeling Prep" else 1)
+
+    for name, fetch_fn in providers:
         logger.info("--- Trying provider: %s ---", name)
         try:
             result = fetch_fn(symbol, exchange)

@@ -6,13 +6,14 @@ logger = logging.getLogger(__name__)
 
 
 def _get_info(ticker: str) -> Optional[dict]:
-    try:
-        import yfinance as yf
-        t = yf.Ticker(ticker)
-        return t.info
-    except Exception as e:
-        logger.error(f"yfinance error for {ticker}: {e}")
-        return None
+    from .stock_data_provider import get_stock_bundle
+
+    symbol = ticker.replace(".NS", "").replace(".BO", "")
+    exchange = "NSE" if ticker.endswith(".NS") else "BSE" if ticker.endswith(".BO") else "NASDAQ"
+    bundle = get_stock_bundle(symbol, exchange, period="1y")
+    if bundle:
+        return bundle.get("info")
+    return None
 
 
 def get_revenue_history(ticker: str) -> list:
@@ -549,16 +550,16 @@ def _get_sector_etf_holdings(sector: str) -> list:
 
 
 def build_analysis_context(symbol: str, exchange: str) -> dict:
-    from .stock_tools import _map_ticker
-    ticker = _map_ticker(symbol, exchange)
+    from .stock_data_provider import get_stock_bundle, map_ticker
 
-    import yfinance as yf
-    try:
-        t = yf.Ticker(ticker)
-        info = t.info
-        history = t.history(period="1y")
-    except Exception as e:
-        return {"error": str(e), "ticker": ticker}
+    ticker = map_ticker(symbol, exchange)
+    bundle = get_stock_bundle(symbol, exchange, period="1y")
+    if not bundle or not bundle.get("info"):
+        return {"error": "Stock data unavailable", "ticker": ticker}
+
+    info = bundle["info"]
+    history = bundle.get("history")
+    data_source = bundle.get("source") or "Yahoo Finance"
 
     score_data = calculate_fundamental_score(info)
     rev_analysis = revenue_analysis(info, ticker)
@@ -579,7 +580,7 @@ def build_analysis_context(symbol: str, exchange: str) -> dict:
         "companyName": info.get("shortName") or info.get("longName") or symbol,
         "sector": info.get("sector"),
         "industry": info.get("industry"),
-        "dataSources": ["Yahoo Finance"],
+        "dataSources": [data_source],
         "marketMetrics": {
             "currentPrice": current_price,
             "marketCap": market_cap,

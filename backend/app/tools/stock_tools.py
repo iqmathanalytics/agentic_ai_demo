@@ -18,14 +18,7 @@ from .quantitative_tools import (
 
 logger = logging.getLogger(__name__)
 
-def _map_ticker(symbol: str, exchange: str) -> str:
-    s = symbol.upper().strip()
-    e = exchange.upper().strip()
-    if e == "NSE" and not s.endswith(".NS"):
-        return f"{s}.NS"
-    if e == "BSE" and not s.endswith(".BO"):
-        return f"{s}.BO"
-    return s
+from .stock_data_provider import get_stock_bundle, map_ticker as _map_ticker
 
 @tool
 def resolve_ticker(company_name: str) -> str:
@@ -58,16 +51,18 @@ def search_latest_news(company_name: str) -> str:
     query = f"{company_name} latest news, earnings report, analyst rating"
     return perform_search(query, search_type="news")
 
-def _get_yfinance_data(ticker: str, period: str = "1y") -> dict | None:
-    try:
-        import yfinance as yf
-        t = yf.Ticker(ticker)
-        history = t.history(period=period)
-        info = t.info
-        return {"history": history, "info": info}
-    except Exception as e:
-        logger.error(f"yfinance error for {ticker}: {e}")
+def _get_yfinance_data(ticker: str, period: str = "1y", exchange: str = "NASDAQ") -> dict | None:
+    """Backward-compatible wrapper — uses Yahoo Finance with FMP cloud fallback."""
+    symbol = ticker.replace(".NS", "").replace(".BO", "")
+    ex = "NSE" if ticker.endswith(".NS") else "BSE" if ticker.endswith(".BO") else exchange
+    bundle = get_stock_bundle(symbol, ex, period=period)
+    if not bundle:
         return None
+    return {
+        "history": bundle.get("history"),
+        "info": bundle.get("info") or {},
+        "source": bundle.get("source"),
+    }
 
 def _build_chart_data(ticker: str, current_price: float | None = None) -> list:
     from datetime import date
@@ -103,20 +98,25 @@ def get_market_metrics(symbol: str, exchange: str) -> dict:
     fallback_data = collect_market_data(symbol, exchange)
     
     ticker = _map_ticker(symbol, exchange)
-    data = _get_yfinance_data(ticker)
+    data = _get_yfinance_data(ticker, period="1y", exchange=exchange)
     
     if not data or not data.get("info"):
         if fallback_data.get("available"):
+            chart = fallback_data.get("chartData") or []
             return {
                 "Current Price": fallback_data.get("currentPrice"),
                 "Market Cap": fallback_data.get("marketCap"),
                 "Average Volume": fallback_data.get("volume"),
-                "Source": fallback_data.get("provider")
+                "PE Ratio": fallback_data.get("trailingPE"),
+                "Beta": fallback_data.get("beta"),
+                "Source": fallback_data.get("provider"),
+                "chartData": chart,
             }
         return {"error": "Market data unavailable for this symbol."}
         
     info = data["info"]
     history = data["history"]
+    data_source = data.get("source") or "yfinance"
     
     clean_closes = history["Close"].dropna() if not history.empty else []
     current_price = round(float(clean_closes.iloc[-1]), 2) if len(clean_closes) > 0 else info.get("currentPrice")
@@ -136,7 +136,7 @@ def get_market_metrics(symbol: str, exchange: str) -> dict:
         "52 Week High": info.get("fiftyTwoWeekHigh"),
         "52 Week Low": info.get("fiftyTwoWeekLow"),
         "Average Volume": info.get("averageVolume") or fallback_data.get("volume"),
-        "Source": "yfinance",
+        "Source": data_source,
         "longBusinessSummary": info.get("longBusinessSummary") or info.get("description"),
         "sector": info.get("sector"),
         "industry": info.get("industry"),

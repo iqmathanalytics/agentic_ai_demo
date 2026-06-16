@@ -110,13 +110,38 @@ If you want `app.nexpertsai.com` or similar:
 
 ---
 
-## Summary of URLs
+## Summary of URLs (current production)
 
 | Component | URL |
 |---|---|
-| Backend health | `https://nexperts-academy-backend.onrender.com/health` |
-| Frontend | `https://nexperts-academy.pages.dev` |
-| WebSocket | `wss://nexperts-academy-backend.onrender.com/ws/agent` |
+| Frontend | https://agentic-ai-demo.pages.dev |
+| Backend | https://nexpertsagenticai.onrender.com |
+| Backend health | https://nexpertsagenticai.onrender.com/health |
+| WebSocket | wss://nexpertsagenticai.onrender.com/ws/agent |
+
+---
+
+## Stock agent — required Render environment variables
+
+Yahoo Finance is often **blocked on cloud servers** (Render). The stock agent falls back to **Financial Modeling Prep (FMP)** for full fundamentals, charts, and analyst data.
+
+**You must set these in Render → Environment** (empty values = 25% data completeness):
+
+| Key | Required for |
+|---|---|
+| `FMP_KEY` | Price, market cap, PE, fundamentals, valuation, risk, chart (primary cloud fallback) |
+| `TAVILY_API_KEY` | Company profile + news search |
+| `SERPER_API_KEY` | Company profile + news search (merged with Tavily) |
+| `ALPHA_VANTAGE_KEY` | Backup price history (especially Indian NSE stocks) |
+| `FINNHUB_KEY` | Backup real-time quotes |
+
+After adding keys, click **Manual Deploy** on Render to restart with the new values.
+
+Cloudflare must have:
+```
+VITE_AGENT_API_URL=https://nexpertsagenticai.onrender.com
+```
+Then trigger a **new Pages deployment** so the frontend bundle picks up the backend URL.
 
 ---
 
