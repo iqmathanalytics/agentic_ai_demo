@@ -1,1 +1,3 @@
+/demo/assets/*    /assets/:splat   200
+/demo/*    /index.html   200
 /*    /index.html   200
