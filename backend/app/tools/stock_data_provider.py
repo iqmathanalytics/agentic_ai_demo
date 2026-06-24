@@ -158,6 +158,23 @@ def _fetch_yahoo_http_bundle(ticker: str, period: str = "1y") -> dict[str, Any] 
                     "period2": "1893456000",
                 },
             )
+            quote_summary = {}
+            try:
+                client.get("https://fc.yahoo.com")
+                crumb_resp = client.get("https://query1.finance.yahoo.com/v1/test/getcrumb")
+                crumb = crumb_resp.text.strip() if crumb_resp.status_code == 200 else ""
+                if crumb:
+                    qs_resp = client.get(
+                        f"https://query1.finance.yahoo.com/v10/finance/quoteSummary/{ticker}",
+                        params={
+                            "modules": "financialData,recommendationTrend",
+                            "crumb": crumb,
+                        },
+                    )
+                    if qs_resp.status_code == 200:
+                        quote_summary = (((qs_resp.json().get("quoteSummary") or {}).get("result") or [{}])[0]) or {}
+            except Exception as exc:
+                logger.info("[Yahoo HTTP] quoteSummary unavailable for %s: %s", ticker, exc)
     except Exception as exc:
         logger.warning("[Yahoo HTTP] request failed for %s: %s", ticker, exc)
         return None
@@ -233,6 +250,14 @@ def _fetch_yahoo_http_bundle(ticker: str, period: str = "1y") -> dict[str, Any] 
     market_cap = _safe_float(meta.get("marketCap")) or _latest_series_value(series, "marketCap")
     if market_cap is None and shares and current_price:
         market_cap = shares * current_price
+    financial_data = quote_summary.get("financialData") or {}
+    recommendation_trend = ((quote_summary.get("recommendationTrend") or {}).get("trend") or [{}])[0] or {}
+    strong_buy = int(recommendation_trend.get("strongBuy") or 0)
+    buy = int(recommendation_trend.get("buy") or 0)
+    hold = int(recommendation_trend.get("hold") or 0)
+    sell = int(recommendation_trend.get("sell") or 0)
+    strong_sell = int(recommendation_trend.get("strongSell") or 0)
+    analyst_count = strong_buy + buy + hold + sell + strong_sell
 
     info = {
         "shortName": search_quote.get("shortname") or meta.get("shortName") or ticker,
@@ -245,22 +270,33 @@ def _fetch_yahoo_http_bundle(ticker: str, period: str = "1y") -> dict[str, Any] 
         "currentPrice": current_price,
         "regularMarketPrice": current_price,
         "marketCap": market_cap,
-        "totalRevenue": revenue,
+        "totalRevenue": _raw_value(financial_data.get("totalRevenue")) or revenue,
+        "ebitda": _raw_value(financial_data.get("ebitda")),
         "trailingEps": eps,
         "trailingPE": trailing_pe or (_safe_ratio(current_price, eps) if eps else None),
-        "revenueGrowth": prev_revenue_growth,
-        "earningsGrowth": earnings_growth,
-        "grossMargins": _safe_ratio(gross_profit, revenue),
-        "operatingMargins": _safe_ratio(operating_income, revenue),
-        "profitMargins": _safe_ratio(net_income, revenue),
-        "returnOnEquity": _safe_ratio(net_income, equity),
-        "returnOnAssets": _safe_ratio(net_income, assets),
-        "debtToEquity": _safe_ratio(total_debt, equity),
-        "freeCashflow": _latest_series_value(series, "annualFreeCashFlow"),
+        "revenueGrowth": _raw_value(financial_data.get("revenueGrowth")) or prev_revenue_growth,
+        "earningsGrowth": _raw_value(financial_data.get("earningsGrowth")) or earnings_growth,
+        "grossMargins": _raw_value(financial_data.get("grossMargins")) or _safe_ratio(gross_profit, revenue),
+        "operatingMargins": _raw_value(financial_data.get("operatingMargins")) or _safe_ratio(operating_income, revenue),
+        "profitMargins": _raw_value(financial_data.get("profitMargins")) or _safe_ratio(net_income, revenue),
+        "returnOnEquity": _raw_value(financial_data.get("returnOnEquity")) or _safe_ratio(net_income, equity),
+        "returnOnAssets": _raw_value(financial_data.get("returnOnAssets")) or _safe_ratio(net_income, assets),
+        "debtToEquity": _raw_value(financial_data.get("debtToEquity")) or _safe_ratio(total_debt, equity),
+        "currentRatio": _raw_value(financial_data.get("currentRatio")),
+        "freeCashflow": _raw_value(financial_data.get("freeCashflow")) or _latest_series_value(series, "annualFreeCashFlow"),
         "fiftyTwoWeekHigh": _safe_float(meta.get("fiftyTwoWeekHigh")),
         "fiftyTwoWeekLow": _safe_float(meta.get("fiftyTwoWeekLow")),
         "averageVolume": _safe_float(meta.get("regularMarketVolume")),
-        "recommendationKey": "N/A",
+        "recommendationKey": financial_data.get("recommendationKey") or "N/A",
+        "targetMeanPrice": _raw_value(financial_data.get("targetMeanPrice")),
+        "targetHighPrice": _raw_value(financial_data.get("targetHighPrice")),
+        "targetLowPrice": _raw_value(financial_data.get("targetLowPrice")),
+        "numberOfAnalystOpinions": _raw_value(financial_data.get("numberOfAnalystOpinions")) or analyst_count or None,
+        "analystCounts": {
+            "buy": strong_buy + buy,
+            "hold": hold,
+            "sell": sell + strong_sell,
+        } if analyst_count else {},
     }
 
     logger.info(

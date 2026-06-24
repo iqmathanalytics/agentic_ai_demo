@@ -697,6 +697,31 @@ def get_analyst_consensus(ticker: str) -> dict:
     if fmp_result:
         return fmp_result
 
+    def _from_info() -> dict:
+        info = _get_info(ticker) or {}
+        if not info:
+            return {}
+        result = {
+            "Consensus Rating": (info.get("recommendationKey") or "N/A").replace("_", " ").title(),
+            "Target Mean Price": info.get("targetMeanPrice"),
+            "Target High Price": info.get("targetHighPrice"),
+            "Target Low Price": info.get("targetLowPrice"),
+            "Number of Analyst Opinions": info.get("numberOfAnalystOpinions"),
+        }
+        counts = info.get("analystCounts") or {}
+        counts = {k: v for k, v in counts.items() if v}
+        if counts:
+            result["Analyst Counts"] = counts
+            total = sum(counts.values())
+            result["Buy Ratio"] = round(counts.get("buy", 0) / total * 100, 1) if total > 0 else 0
+        if (
+            result["Consensus Rating"] != "N/A"
+            or result.get("Target Mean Price") is not None
+            or result.get("Analyst Counts")
+        ):
+            return result
+        return {}
+
     try:
         import yfinance as yf
 
@@ -709,7 +734,7 @@ def get_analyst_consensus(ticker: str) -> dict:
             logger.info("Yahoo analyst data rate-limited for %s — using available profile data only", ticker)
         else:
             logger.warning("Yahoo analyst data unavailable for %s: %s", ticker, e)
-        return {}
+        return _from_info()
 
     result = {
         "Consensus Rating": info.get("recommendationKey", "N/A").replace("_", " ").title(),
@@ -748,7 +773,7 @@ def get_analyst_consensus(ticker: str) -> dict:
         except Exception as e:
             logger.warning("Failed to parse Yahoo recommendations for %s: %s", ticker, e)
 
-    return result
+    return result if result.get("Consensus Rating") != "N/A" or result.get("Target Mean Price") is not None else _from_info()
 
 
 def discover_peers(info: dict) -> list:
