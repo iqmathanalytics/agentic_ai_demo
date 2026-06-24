@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 from statistics import mean
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+_FMP_COOLDOWN_UNTIL = 0.0
 
 
 def _ticker_for_exchange(symbol: str, exchange: str) -> str:
@@ -95,6 +98,7 @@ def _fetch_yahoo(symbol: str, exchange: str) -> dict[str, Any] | None:
             "available": True,
             "provider": "Yahoo Finance",
             "ticker": ticker,
+            "currency": info.get("currency") or info.get("financialCurrency"),
             "currentPrice": round(latest, 2),
             "change": round(change_pct, 2),
             "sma20": round(sma20, 2),
@@ -182,6 +186,7 @@ def _fetch_alpha_vantage(symbol: str, exchange: str) -> dict[str, Any] | None:
             "available": True,
             "provider": "Alpha Vantage",
             "ticker": ticker,
+            "currency": "USD",
             "currentPrice": round(latest, 2),
             "change": round(change_pct, 2),
             "sma20": round(sma20, 2),
@@ -240,6 +245,7 @@ def _fetch_finnhub(symbol: str, exchange: str) -> dict[str, Any] | None:
             "available": True,
             "provider": "Finnhub",
             "ticker": ticker,
+            "currency": "USD",
             "currentPrice": round(latest, 2),
             "change": round(change_pct, 2),
             "sma20": None,
@@ -257,6 +263,12 @@ def _fetch_finnhub(symbol: str, exchange: str) -> dict[str, Any] | None:
 
 
 def _fetch_fmp(symbol: str, exchange: str) -> dict[str, Any] | None:
+    global _FMP_COOLDOWN_UNTIL
+
+    if time.time() < _FMP_COOLDOWN_UNTIL:
+        logger.info("[FMP] Skipping market-data request during short rate-limit cooldown")
+        return None
+
     api_key = os.getenv("FMP_KEY")
     if not api_key:
         logger.info("[FMP] No API key — set FMP_KEY env var to enable")
@@ -292,10 +304,22 @@ def _fetch_fmp(symbol: str, exchange: str) -> dict[str, Any] | None:
                 params={"symbol": fmp_symbol, "apikey": api_key},
             )
 
-        profile = profile_resp.json()
-        quote = quote_resp.json()
-        metrics = metrics_resp.json()
-        history_raw = history_resp.json()
+        def safe_json(resp):
+            global _FMP_COOLDOWN_UNTIL
+            if resp.status_code != 200:
+                logger.warning("[FMP] HTTP %s for %s", resp.status_code, resp.url)
+                if resp.status_code == 429:
+                    _FMP_COOLDOWN_UNTIL = time.time() + 60
+                return []
+            try:
+                return resp.json()
+            except Exception:
+                return []
+
+        profile = safe_json(profile_resp)
+        quote = safe_json(quote_resp)
+        metrics = safe_json(metrics_resp)
+        history_raw = safe_json(history_resp)
 
         p = profile[0] if isinstance(profile, list) and profile else {}
         q = quote[0] if isinstance(quote, list) and quote else {}
@@ -319,6 +343,7 @@ def _fetch_fmp(symbol: str, exchange: str) -> dict[str, Any] | None:
             "available": True,
             "provider": "Financial Modeling Prep",
             "ticker": ticker,
+            "currency": p.get("currency"),
             "currentPrice": round(latest, 2),
             "change": round(change_pct, 2),
             "sma20": None,

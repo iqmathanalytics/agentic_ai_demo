@@ -4,9 +4,14 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+_BUNDLE_CACHE: dict[tuple[str, str, str], tuple[dict[str, Any], float]] = {}
+_BUNDLE_CACHE_TTL_SECONDS = 60 * 10
+_FMP_COOLDOWN_UNTIL = 0.0
 
 
 def map_ticker(symbol: str, exchange: str) -> str:
@@ -45,6 +50,46 @@ def _info_is_usable(info: dict | None) -> bool:
     return any(info.get(k) not in (None, 0, "") for k in keys)
 
 
+def _bundle_has_enough_depth(bundle: dict[str, Any] | None) -> bool:
+    if not bundle:
+        return False
+    info = bundle.get("info") or {}
+    history = bundle.get("history")
+    history_ok = history is not None and not getattr(history, "empty", True)
+    depth_keys = (
+        "trailingPE",
+        "totalRevenue",
+        "grossMargins",
+        "profitMargins",
+        "returnOnEquity",
+        "debtToEquity",
+        "targetMeanPrice",
+    )
+    metrics_available = sum(1 for key in depth_keys if info.get(key) not in (None, 0, ""))
+    return history_ok and metrics_available >= 2
+
+
+def _merge_bundles(primary: dict[str, Any], fallback: dict[str, Any]) -> dict[str, Any]:
+    """Fill gaps in primary bundle using fallback values without overwriting known data."""
+    merged = dict(primary)
+    merged_info = dict(fallback.get("info") or {})
+    for key, value in (primary.get("info") or {}).items():
+        if value not in (None, "", 0):
+            merged_info[key] = value
+    merged["info"] = merged_info
+
+    primary_history = primary.get("history")
+    fallback_history = fallback.get("history")
+    if primary_history is None or getattr(primary_history, "empty", True):
+        if fallback_history is not None and not getattr(fallback_history, "empty", True):
+            merged["history"] = fallback_history
+
+    if not merged.get("currency"):
+        merged["currency"] = fallback.get("currency") or merged_info.get("currency")
+    merged["source"] = primary.get("source") or fallback.get("source")
+    return merged
+
+
 def _fetch_yfinance_bundle(ticker: str, period: str = "1y") -> dict[str, Any] | None:
     try:
         import yfinance as yf
@@ -59,6 +104,7 @@ def _fetch_yfinance_bundle(ticker: str, period: str = "1y") -> dict[str, Any] | 
             "history": history,
             "source": "Yahoo Finance",
             "ticker": ticker,
+            "currency": info.get("currency") or info.get("financialCurrency"),
         }
     except Exception as exc:
         logger.warning("[Yahoo Finance] bundle failed for %s: %s", ticker, exc)
@@ -78,6 +124,12 @@ def _safe_float(value: Any) -> float | None:
 
 
 def _fetch_fmp_bundle(symbol: str, exchange: str, period: str = "1y") -> dict[str, Any] | None:
+    global _FMP_COOLDOWN_UNTIL
+
+    if time.time() < _FMP_COOLDOWN_UNTIL:
+        logger.info("[FMP] Skipping request during short rate-limit cooldown")
+        return None
+
     api_key = os.getenv("FMP_KEY")
     if not api_key:
         logger.info("[FMP] No API key — set FMP_KEY to enable cloud fallback")
@@ -96,10 +148,16 @@ def _fetch_fmp_bundle(symbol: str, exchange: str, period: str = "1y") -> dict[st
     base = "https://financialmodelingprep.com/stable"
 
     def _get(client: httpx.Client, path: str, **params: Any) -> Any:
+        global _FMP_COOLDOWN_UNTIL
+
+        if time.time() < _FMP_COOLDOWN_UNTIL:
+            return None
         params["apikey"] = api_key
         resp = client.get(f"{base}/{path}", params=params, timeout=25)
         if resp.status_code != 200:
             logger.warning("[FMP] %s returned HTTP %s", path, resp.status_code)
+            if resp.status_code == 429:
+                _FMP_COOLDOWN_UNTIL = time.time() + 60
             return None
         try:
             return resp.json()
@@ -158,6 +216,7 @@ def _fetch_fmp_bundle(symbol: str, exchange: str, period: str = "1y") -> dict[st
         "sector": p.get("sector"),
         "industry": p.get("industry"),
         "country": p.get("country"),
+        "currency": p.get("currency"),
         "website": p.get("website"),
         "longBusinessSummary": p.get("description"),
         "description": p.get("description"),
@@ -226,6 +285,7 @@ def _fetch_fmp_bundle(symbol: str, exchange: str, period: str = "1y") -> dict[st
         "history": history,
         "source": "Financial Modeling Prep",
         "ticker": ticker,
+        "currency": info.get("currency"),
     }
 
 
@@ -268,17 +328,29 @@ def _enrich_history_from_alpha_vantage(symbol: str, exchange: str) -> Any:
 def get_stock_bundle(symbol: str, exchange: str, period: str = "1y") -> dict[str, Any] | None:
     """Return stock info + price history, preferring Yahoo Finance with FMP fallback."""
     ticker = map_ticker(symbol, exchange)
+    cache_key = (symbol.upper().strip(), exchange.upper().strip(), period)
+    cached = _BUNDLE_CACHE.get(cache_key)
+    if cached and time.time() - cached[1] < _BUNDLE_CACHE_TTL_SECONDS:
+        return cached[0]
+
     yahoo = None
     fmp = None
 
     if os.getenv("FMP_KEY"):
         fmp = _fetch_fmp_bundle(symbol, exchange, period=period)
-        if fmp and _info_is_usable(fmp.get("info")):
+        if fmp and _info_is_usable(fmp.get("info")) and _bundle_has_enough_depth(fmp):
             _maybe_enrich_history(fmp, symbol, exchange, period)
+            _BUNDLE_CACHE[cache_key] = (fmp, time.time())
             return fmp
 
     yahoo = _fetch_yfinance_bundle(ticker, period=period)
     if yahoo and _info_is_usable(yahoo.get("info")):
+        if fmp and _info_is_usable(fmp.get("info")):
+            merged = _merge_bundles(fmp, yahoo)
+            _maybe_enrich_history(merged, symbol, exchange, period)
+            _BUNDLE_CACHE[cache_key] = (merged, time.time())
+            return merged
+        _BUNDLE_CACHE[cache_key] = (yahoo, time.time())
         return yahoo
 
     fmp = fmp or _fetch_fmp_bundle(symbol, exchange, period=period)
@@ -286,9 +358,11 @@ def get_stock_bundle(symbol: str, exchange: str, period: str = "1y") -> dict[str
         if yahoo and not yahoo["history"].empty and fmp["history"].empty:
             fmp["history"] = yahoo["history"]
         _maybe_enrich_history(fmp, symbol, exchange, period)
+        _BUNDLE_CACHE[cache_key] = (fmp, time.time())
         return fmp
 
     if yahoo:
+        _BUNDLE_CACHE[cache_key] = (yahoo, time.time())
         return yahoo
 
     return None
@@ -305,6 +379,11 @@ def _maybe_enrich_history(bundle: dict[str, Any], symbol: str, exchange: str, pe
 
 def fetch_analyst_consensus(ticker: str) -> dict[str, Any]:
     """Analyst ratings via FMP stable API (cloud-safe; avoids Yahoo rate limits)."""
+    global _FMP_COOLDOWN_UNTIL
+
+    if time.time() < _FMP_COOLDOWN_UNTIL:
+        return {}
+
     api_key = os.getenv("FMP_KEY")
     if not api_key:
         return {}
@@ -329,6 +408,10 @@ def fetch_analyst_consensus(ticker: str) -> dict[str, Any]:
             )
     except Exception as exc:
         logger.warning("[FMP] analyst fetch failed for %s: %s", fmp_sym, exc)
+        return {}
+
+    if grades_resp.status_code == 429 or targets_resp.status_code == 429:
+        _FMP_COOLDOWN_UNTIL = time.time() + 60
         return {}
 
     grades = grades_resp.json() if grades_resp.status_code == 200 else []

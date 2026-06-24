@@ -10,8 +10,33 @@ from typing import Any
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from app.models.schemas import EquityReport, NewsItem, Recommendation
+from app.tools.currency_utils import TARGET_CURRENCY, convert_to_myr, get_fx_rate_to_myr, normalize_currency
 
 logger = logging.getLogger(__name__)
+
+_MONEY_KEYS = {
+    "Current Price",
+    "currentPrice",
+    "regularMarketPrice",
+    "Market Cap",
+    "marketCap",
+    "Enterprise Value",
+    "Revenue",
+    "totalRevenue",
+    "EPS",
+    "EBITDA",
+    "Target Mean Price",
+    "Target High Price",
+    "Target Low Price",
+    "targetMeanPrice",
+    "targetHighPrice",
+    "targetLowPrice",
+    "Fair Value Estimate",
+    "fairValue",
+    "freeCashflow",
+}
+
+_FUNDAMENTAL_MONEY_KEYS = {"Free Cash Flow"}
 
 _NAV_JUNK_PATTERNS = re.compile(
     r"(?i)(who we are|what we do|overview\s+our culture|history and timeline|"
@@ -33,6 +58,83 @@ def _has_value(val: Any) -> bool:
     if isinstance(val, list) and not val:
         return False
     return True
+
+
+def _detect_source_currency(state: dict) -> str:
+    market = state.get("market_data") or {}
+    quant = state.get("quantitative_data") or {}
+    market_metrics = quant.get("marketMetrics") or {}
+    return normalize_currency(
+        market.get("Currency")
+        or market.get("currency")
+        or market_metrics.get("currency")
+        or quant.get("currency"),
+        state.get("exchange", ""),
+    )
+
+
+def _convert_money_dict(value: Any, source_currency: str) -> Any:
+    if isinstance(value, list):
+        converted = []
+        for item in value:
+            if isinstance(item, dict) and "value" in item:
+                converted.append({**item, "value": convert_to_myr(item["value"], source_currency)})
+            else:
+                converted.append(_convert_money_dict(item, source_currency))
+        return converted
+
+    if not isinstance(value, dict):
+        return value
+
+    converted = {}
+    for key, item in value.items():
+        if key in _MONEY_KEYS:
+            converted[key] = convert_to_myr(item, source_currency)
+        elif isinstance(item, dict):
+            converted[key] = _convert_money_dict(item, source_currency)
+        elif isinstance(item, list):
+            converted[key] = _convert_money_dict(item, source_currency)
+        else:
+            converted[key] = item
+    return converted
+
+
+def _convert_fundamentals(fundamentals: dict, source_currency: str) -> dict:
+    converted = {}
+    for key, item in fundamentals.items():
+        if isinstance(item, dict):
+            item = dict(item)
+            if key in _FUNDAMENTAL_MONEY_KEYS and "Value" in item:
+                item["Value"] = convert_to_myr(item["Value"], source_currency)
+        converted[key] = item
+    return converted
+
+
+def _format_myr(value: Any) -> str:
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        return str(value)
+    amount = float(value)
+    if abs(amount) >= 1e12:
+        return f"RM {amount / 1e12:.2f}T"
+    if abs(amount) >= 1e9:
+        return f"RM {amount / 1e9:.2f}B"
+    if abs(amount) >= 1e6:
+        return f"RM {amount / 1e6:.2f}M"
+    return f"RM {amount:,.2f}"
+
+
+def normalize_state_money_to_myr(state: dict) -> tuple[dict, str, float]:
+    source_currency = _detect_source_currency(state)
+    fx_rate = get_fx_rate_to_myr(source_currency)
+
+    normalized = dict(state)
+    normalized["market_data"] = _convert_money_dict(state.get("market_data") or {}, source_currency)
+    normalized["valuation_data"] = _convert_money_dict(state.get("valuation_data") or {}, source_currency)
+    normalized["risk_data"] = _convert_money_dict(state.get("risk_data") or {}, source_currency)
+    normalized["analyst_data"] = _convert_money_dict(state.get("analyst_data") or {}, source_currency)
+    normalized["quantitative_data"] = _convert_money_dict(state.get("quantitative_data") or {}, source_currency)
+    normalized["fundamental_data"] = _convert_fundamentals(state.get("fundamental_data") or {}, source_currency)
+    return normalized, source_currency, fx_rate
 
 
 def _parse_search_results(raw: str) -> list[dict]:
@@ -183,9 +285,15 @@ def build_reasoning_bullets(state: dict, recommendation: Recommendation) -> list
     fv = quant.get("fairValue") or val_data.get("_fairValue") or {}
 
     if score is not None:
+        if action == "BUY":
+            score_phrase = "supports"
+        elif action == "SELL":
+            score_phrase = "supports reducing exposure through"
+        else:
+            score_phrase = "suggests caution on"
         bullets.append(
             f"The company scores {score:.0f}/100 on fundamentals ({rating}), "
-            f"which {'supports' if action == 'BUY' else 'cautions against' if action == 'SELL' else 'suggests caution on'} a {action} stance."
+            f"which {score_phrase} a {action} stance."
         )
 
     price = market.get("Current Price")
@@ -193,8 +301,8 @@ def build_reasoning_bullets(state: dict, recommendation: Recommendation) -> list
         fair = fv.get("fairValue")
         if fair:
             bullets.append(
-                f"At {price}, the stock looks {'undervalued' if upside > 5 else 'overvalued' if upside < -5 else 'fairly priced'} "
-                f"vs an estimated fair value of {fair} ({upside:+.1f}% upside)."
+                f"At {_format_myr(price)}, the stock looks {'undervalued' if upside > 5 else 'overvalued' if upside < -5 else 'fairly priced'} "
+                f"vs an estimated fair value of {_format_myr(fair)} ({upside:+.1f}% upside)."
             )
         else:
             bullets.append(f"Valuation upside is estimated at {upside:+.1f}% based on available metrics.")
@@ -217,7 +325,7 @@ def build_reasoning_bullets(state: dict, recommendation: Recommendation) -> list
     consensus = analyst.get("Consensus Rating")
     target = analyst.get("Target Mean Price")
     if consensus and consensus != "N/A":
-        target_str = f" with analyst target near {target}" if _has_value(target) else ""
+        target_str = f" with analyst target near {_format_myr(target)}" if _has_value(target) else ""
         bullets.append(f"Wall Street consensus is '{consensus}'{target_str}.")
 
     if not bullets:
@@ -356,7 +464,8 @@ def build_deterministic_markdown(
         lines.extend(["", "## Valuation", f"- **Assessment:** {valuation['Assessment']}"])
         for key in ("Trailing PE", "Forward PE", "EV/EBITDA", "Fair Value Estimate", "Upside %"):
             if _has_value(valuation.get(key)):
-                lines.append(f"- **{key}:** {valuation[key]}")
+                value = _format_myr(valuation[key]) if key in {"Fair Value Estimate"} else valuation[key]
+                lines.append(f"- **{key}:** {value}")
 
     if bullish:
         lines.extend(["", "## Bullish Factors"])
@@ -372,6 +481,7 @@ def build_deterministic_markdown(
 
 
 def build_equity_report(state: dict) -> EquityReport:
+    state, source_currency, fx_rate = normalize_state_money_to_myr(state)
     market = state.get("market_data") or {}
     fund = state.get("fundamental_data") or {}
     val_data = state.get("valuation_data") or {}
@@ -461,6 +571,9 @@ def build_equity_report(state: dict) -> EquityReport:
         report=report_md,
         currentPrice=float(current_price) if isinstance(current_price, (int, float)) else None,
         marketCap=float(market_cap) if isinstance(market_cap, (int, float)) else None,
+        displayCurrency=TARGET_CURRENCY,
+        sourceCurrency=source_currency,
+        fxRateToDisplayCurrency=fx_rate,
         dataSources=data_sources,
         dataCompleteness=completeness,
     )

@@ -62,6 +62,7 @@ def _get_yfinance_data(ticker: str, period: str = "1y", exchange: str = "NASDAQ"
         "history": bundle.get("history"),
         "info": bundle.get("info") or {},
         "source": bundle.get("source"),
+        "currency": bundle.get("currency") or (bundle.get("info") or {}).get("currency"),
     }
 
 def _build_chart_data(ticker: str, current_price: float | None = None) -> list:
@@ -110,6 +111,7 @@ def get_market_metrics(symbol: str, exchange: str) -> dict:
                 "PE Ratio": fallback_data.get("trailingPE"),
                 "Beta": fallback_data.get("beta"),
                 "Source": fallback_data.get("provider"),
+                "Currency": fallback_data.get("currency"),
                 "chartData": chart,
             }
         return {"error": "Market data unavailable for this symbol."}
@@ -117,6 +119,7 @@ def get_market_metrics(symbol: str, exchange: str) -> dict:
     info = data["info"]
     history = data["history"]
     data_source = data.get("source") or "yfinance"
+    currency = data.get("currency") or info.get("currency") or info.get("financialCurrency")
     
     clean_closes = history["Close"].dropna() if not history.empty else []
     current_price = round(float(clean_closes.iloc[-1]), 2) if len(clean_closes) > 0 else info.get("currentPrice")
@@ -137,10 +140,11 @@ def get_market_metrics(symbol: str, exchange: str) -> dict:
         "52 Week Low": info.get("fiftyTwoWeekLow"),
         "Average Volume": info.get("averageVolume") or fallback_data.get("volume"),
         "Source": data_source,
+        "Currency": currency,
         "longBusinessSummary": info.get("longBusinessSummary") or info.get("description"),
         "sector": info.get("sector"),
         "industry": info.get("industry"),
-        "chartData": _build_chart_data(ticker, current_price)
+        "chartData": _build_chart_data(ticker, current_price),
     }
     return metrics
 
@@ -209,7 +213,11 @@ def calculate_fundamentals(symbol: str, exchange: str) -> str:
         },
         "Free Cash Flow": {
             "Value": info.get("freeCashflow"),
-            "Classification": "Strong" if info.get("freeCashflow", 0) > 0 else "Weak"
+            "Classification": (
+                "Data Not Available"
+                if info.get("freeCashflow") is None
+                else "Strong" if info.get("freeCashflow") > 0 else "Weak"
+            ),
         }
     }
     score = _calc_score(info)

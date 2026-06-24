@@ -85,6 +85,9 @@ class EquityReport(BaseModel):
     report: str = Field(description="The full detailed markdown report")
     currentPrice: float | None = Field(None, description="Current stock price")
     marketCap: float | None = Field(None, description="Market capitalization")
+    displayCurrency: str = Field(default="MYR", description="Currency used for all displayed money values")
+    sourceCurrency: str = Field(default="", description="Original market data currency")
+    fxRateToDisplayCurrency: float | None = Field(None, description="FX rate used to convert source currency to display currency")
     dataSources: List[str] = Field(default_factory=list, description="Data providers used in analysis")
     dataCompleteness: int = Field(default=0, description="Percentage of expected data fields populated")
 

@@ -1,6 +1,8 @@
 fastapi
 uvicorn[standard]
 pydantic
+jsonpatch
+requests-toolbelt
 python-multipart
 python-dotenv
 langchain

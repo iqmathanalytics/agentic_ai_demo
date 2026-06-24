@@ -83,7 +83,168 @@ def revenue_analysis(info: dict, ticker: str = "") -> dict:
     }
 
 
+def _is_financial_company(info: dict) -> bool:
+    sector = (info.get("sector") or "").lower()
+    industry = (info.get("industry") or "").lower()
+    return any(term in f"{sector} {industry}" for term in ("financial", "bank", "insurance", "capital markets"))
+
+
+def _rating_from_score(pct: float) -> str:
+    if pct >= 85:
+        return "Excellent"
+    if pct >= 70:
+        return "Strong"
+    if pct >= 55:
+        return "Average"
+    if pct >= 40:
+        return "Weak"
+    return "Poor"
+
+
+def _score_from_components(scores: dict, max_points: dict) -> dict:
+    available = {k: v for k, v in scores.items() if v is not None}
+    total_possible = sum(max_points[k] for k in available)
+    total_earned = sum(available.values())
+    pct = round((total_earned / total_possible) * 100, 1) if total_possible > 0 else 0
+
+    return {
+        "totalScore": pct,
+        "rating": _rating_from_score(pct),
+        "componentScores": scores,
+        "metricsAvailable": len(available),
+        "metricsTotal": len(max_points),
+    }
+
+
+def calculate_financial_fundamental_score(info: dict) -> dict:
+    """Bank/financial-sector score. Avoids industrial metrics that do not apply to banks."""
+    max_points = {
+        "revenueGrowth": 10,
+        "earningsGrowth": 10,
+        "profitMargin": 15,
+        "roe": 25,
+        "roa": 15,
+        "priceToBook": 15,
+        "peRatio": 10,
+    }
+    scores = {}
+
+    rg = info.get("revenueGrowth")
+    if rg is not None:
+        if rg > 0.15:
+            scores["revenueGrowth"] = 10
+        elif rg > 0.05:
+            scores["revenueGrowth"] = 7
+        elif rg >= 0:
+            scores["revenueGrowth"] = 4
+        elif rg > -0.15:
+            scores["revenueGrowth"] = 2
+        else:
+            scores["revenueGrowth"] = 1
+    else:
+        scores["revenueGrowth"] = None
+
+    eg = info.get("earningsGrowth")
+    if eg is not None:
+        if eg > 0.20:
+            scores["earningsGrowth"] = 10
+        elif eg > 0.10:
+            scores["earningsGrowth"] = 8
+        elif eg > 0:
+            scores["earningsGrowth"] = 6
+        elif eg > -0.15:
+            scores["earningsGrowth"] = 3
+        else:
+            scores["earningsGrowth"] = 1
+    else:
+        scores["earningsGrowth"] = None
+
+    pm = info.get("profitMargins")
+    if pm is not None:
+        if pm > 0.30:
+            scores["profitMargin"] = 15
+        elif pm > 0.20:
+            scores["profitMargin"] = 11
+        elif pm > 0.10:
+            scores["profitMargin"] = 7
+        elif pm > 0:
+            scores["profitMargin"] = 3
+        else:
+            scores["profitMargin"] = 0
+    else:
+        scores["profitMargin"] = None
+
+    roe = info.get("returnOnEquity")
+    if roe is not None:
+        if roe > 0.18:
+            scores["roe"] = 25
+        elif roe > 0.15:
+            scores["roe"] = 21
+        elif roe > 0.12:
+            scores["roe"] = 17
+        elif roe > 0.08:
+            scores["roe"] = 10
+        elif roe > 0.04:
+            scores["roe"] = 5
+        else:
+            scores["roe"] = 0
+    else:
+        scores["roe"] = None
+
+    roa = info.get("returnOnAssets")
+    if roa is not None:
+        if roa > 0.015:
+            scores["roa"] = 15
+        elif roa > 0.010:
+            scores["roa"] = 12
+        elif roa > 0.0075:
+            scores["roa"] = 9
+        elif roa > 0.005:
+            scores["roa"] = 5
+        else:
+            scores["roa"] = 1
+    else:
+        scores["roa"] = None
+
+    pb = info.get("priceToBook")
+    if pb is not None:
+        if pb <= 1.0:
+            scores["priceToBook"] = 15
+        elif pb <= 1.5:
+            scores["priceToBook"] = 12
+        elif pb <= 2.0:
+            scores["priceToBook"] = 8
+        elif pb <= 3.0:
+            scores["priceToBook"] = 4
+        else:
+            scores["priceToBook"] = 1
+    else:
+        scores["priceToBook"] = None
+
+    pe = info.get("trailingPE")
+    if pe is not None and pe > 0:
+        if pe <= 8:
+            scores["peRatio"] = 10
+        elif pe <= 12:
+            scores["peRatio"] = 8
+        elif pe <= 18:
+            scores["peRatio"] = 5
+        elif pe <= 25:
+            scores["peRatio"] = 3
+        else:
+            scores["peRatio"] = 1
+    else:
+        scores["peRatio"] = None
+
+    result = _score_from_components(scores, max_points)
+    result["sectorModel"] = "financial"
+    return result
+
+
 def calculate_fundamental_score(info: dict) -> dict:
+    if _is_financial_company(info):
+        return calculate_financial_fundamental_score(info)
+
     scores = {}
     max_points = {"revenueGrowth": 15, "grossMargin": 15, "operatingMargin": 10,
                   "roe": 15, "debtToEquity": 20, "currentRatio": 10, "freeCashFlow": 15}
@@ -159,24 +320,9 @@ def calculate_fundamental_score(info: dict) -> dict:
     else:
         scores["freeCashFlow"] = None
 
-    available = {k: v for k, v in scores.items() if v is not None}
-    total_possible = sum(max_points[k] for k in available)
-    total_earned = sum(available.values())
-    pct = round((total_earned / total_possible) * 100, 1) if total_possible > 0 else 0
-
-    if pct >= 85: rating = "Excellent"
-    elif pct >= 70: rating = "Strong"
-    elif pct >= 55: rating = "Average"
-    elif pct >= 40: rating = "Weak"
-    else: rating = "Poor"
-
-    return {
-        "totalScore": pct,
-        "rating": rating,
-        "componentScores": scores,
-        "metricsAvailable": len(available),
-        "metricsTotal": len(max_points)
-    }
+    result = _score_from_components(scores, max_points)
+    result["sectorModel"] = "standard"
+    return result
 
 
 def pe_valuation(info: dict) -> Optional[dict]:
@@ -212,9 +358,66 @@ def growth_valuation(info: dict) -> Optional[dict]:
     return None
 
 
+def bank_price_to_book_valuation(info: dict) -> Optional[dict]:
+    book_value = info.get("bookValue")
+    pb = info.get("priceToBook")
+    roe = info.get("returnOnEquity")
+    if not book_value or book_value <= 0:
+        return None
+
+    if roe is not None:
+        if roe >= 0.18:
+            fair_pb = 1.45
+        elif roe >= 0.15:
+            fair_pb = 1.25
+        elif roe >= 0.12:
+            fair_pb = 1.05
+        elif roe >= 0.08:
+            fair_pb = 0.85
+        else:
+            fair_pb = 0.70
+    elif pb:
+        fair_pb = min(max(pb, 0.8), 1.2)
+    else:
+        fair_pb = 1.0
+
+    return {
+        "fairValue": round(book_value * fair_pb, 2),
+        "method": "Bank Price/Book",
+        "appliedPB": round(fair_pb, 2),
+    }
+
+
+def bank_pe_valuation(info: dict) -> Optional[dict]:
+    pe = info.get("trailingPE")
+    eps = info.get("trailingEps")
+    roe = info.get("returnOnEquity")
+    if not pe or not eps or pe <= 0 or eps <= 0:
+        return None
+
+    if roe is not None and roe >= 0.15:
+        fair_pe = 8.0
+    elif roe is not None and roe >= 0.10:
+        fair_pe = 7.0
+    else:
+        fair_pe = 6.0
+    fair_pe = max(fair_pe, min(pe * 1.10, 10.0))
+
+    return {
+        "fairValue": round(eps * fair_pe, 2),
+        "method": "Bank PE",
+        "appliedPE": round(fair_pe, 2),
+    }
+
+
 def calculate_fair_value(info: dict) -> dict:
     methods = []
-    for fn in [pe_valuation, forward_pe_valuation, growth_valuation]:
+    valuation_methods = (
+        [bank_price_to_book_valuation, bank_pe_valuation]
+        if _is_financial_company(info)
+        else [pe_valuation, forward_pe_valuation, growth_valuation]
+    )
+    for fn in valuation_methods:
         try:
             r = fn(info)
             if r:
@@ -223,6 +426,13 @@ def calculate_fair_value(info: dict) -> dict:
             logger.warning(f"Valuation method failed: {e}")
 
     current_price = info.get("currentPrice") if info.get("currentPrice") is not None else info.get("regularMarketPrice")
+
+    target_price = info.get("targetMeanPrice")
+    if target_price and current_price and target_price > 0:
+        methods.append({
+            "fairValue": round(float(target_price), 2),
+            "method": "Analyst Target",
+        })
 
     if methods:
         fair_vals = [m["fairValue"] for m in methods if m.get("fairValue")]
@@ -273,7 +483,7 @@ def generate_bullish_factors(info: dict, score_data: dict, fair_value_data: dict
 
     fcf = info.get("freeCashflow")
     if fcf is not None and fcf > 0:
-        factors.append(f"Positive free cash flow of ${fcf:,.0f} provides financial flexibility")
+        factors.append("Positive free cash flow provides financial flexibility")
 
     upside = fair_value_data.get("upside")
     if upside is not None and upside > 10:
@@ -315,7 +525,7 @@ def generate_bearish_factors(info: dict, score_data: dict, fair_value_data: dict
 
     fcf = info.get("freeCashflow")
     if fcf is not None and fcf < 0:
-        factors.append(f"Negative free cash flow of ${abs(fcf):,.0f} raises sustainability questions")
+        factors.append("Negative free cash flow raises sustainability questions")
 
     eps = info.get("earningsGrowth")
     if eps is not None and eps < 0:
@@ -365,62 +575,118 @@ def calculate_confidence(info: dict, score_data: dict) -> int:
 
 
 def investment_recommendation(score_data: dict, fair_value_data: dict, analyst_data: dict) -> dict:
-    score = score_data.get("totalScore", 0)
-    upside = fair_value_data.get("upside")
+    """Signal-based BUY/HOLD/SELL decision.
+
+    This deliberately separates business quality, valuation, and analyst view so a
+    sector-specific stock (especially banks) is not downgraded just because
+    industrial metrics are unavailable.
+    """
+    score = float(score_data.get("totalScore") or 0)
     rating = score_data.get("rating", "Average")
+    upside = fair_value_data.get("upside")
+    current = fair_value_data.get("currentPrice")
 
     analyst_rec = (analyst_data or {}).get("Consensus Rating", "").lower()
-    analyst_bullish = any(w in analyst_rec for w in ["buy", "strong"])
+    analyst_bullish = any(w in analyst_rec for w in ["buy", "strong", "outperform", "overweight"])
+    analyst_bearish = any(w in analyst_rec for w in ["sell", "underperform", "reduce", "underweight"])
+    target = (analyst_data or {}).get("Target Mean Price")
+    target_upside = None
+    if isinstance(target, (int, float)) and isinstance(current, (int, float)) and current > 0:
+        target_upside = round((target - current) / current * 100, 1)
 
-    upside_str = f"{upside:.1f}%" if upside is not None else "N/A"
+    buy_points = 0
+    sell_points = 0
+    reasons: list[str] = []
+    risks: list[str] = []
 
-    # Default values
-    action = "HOLD"
-    reason1 = ""
-    reason2 = ""
+    if score >= 75:
+        buy_points += 3
+        reasons.append(f"Business quality is strong ({rating}, {score:.0f}/100).")
+    elif score >= 60:
+        buy_points += 2
+        reasons.append(f"Business quality is investable ({rating}, {score:.0f}/100).")
+    elif score >= 45:
+        buy_points += 1
+        risks.append(f"Business quality is mixed ({rating}, {score:.0f}/100).")
+    else:
+        sell_points += 2
+        risks.append(f"Business quality is weak ({rating}, {score:.0f}/100).")
 
-    if score >= 70 and upside is not None and upside > 5:
+    if upside is not None:
+        if upside >= 20:
+            buy_points += 3
+            reasons.append(f"Fair-value model indicates meaningful upside of {upside:.1f}%.")
+        elif upside >= 8:
+            buy_points += 2
+            reasons.append(f"Fair-value model indicates upside of {upside:.1f}%.")
+        elif upside >= 0:
+            buy_points += 1
+            reasons.append(f"Fair-value model shows modest upside of {upside:.1f}%.")
+        elif upside <= -20:
+            sell_points += 3
+            risks.append(f"Fair-value model indicates downside of {upside:.1f}%.")
+        elif upside <= -8:
+            sell_points += 1
+            risks.append(f"Fair-value model indicates limited downside of {upside:.1f}%.")
+
+    if target_upside is not None:
+        if target_upside >= 12:
+            buy_points += 2
+            reasons.append(f"Analyst target implies about {target_upside:.1f}% upside.")
+        elif target_upside >= 5:
+            buy_points += 1
+            reasons.append(f"Analyst target implies about {target_upside:.1f}% upside.")
+        elif target_upside <= -10:
+            sell_points += 2
+            risks.append(f"Analyst target implies about {abs(target_upside):.1f}% downside.")
+
+    if analyst_bullish:
+        buy_points += 2
+        reasons.append("Analyst consensus is positive.")
+    elif analyst_bearish:
+        sell_points += 2
+        risks.append("Analyst consensus is negative.")
+
+    net_score = buy_points - sell_points
+
+    if buy_points >= 5 and net_score >= 3 and score >= 55 and not (analyst_bearish and (target_upside or 0) < 0):
         action = "BUY"
-        confidence_score = calculate_confidence({"targetMeanPrice": 1, "targetHighPrice": 2,
-                                                  "targetLowPrice": 0.5, "averageVolume": 2000000,
-                                                  "currentPrice": 1}, score_data)
-        reason1 = f"The business looks financially strong ({rating}, {score:.0f}/100 score)."
-        reason2 = f"The stock appears undervalued with about {upside_str} upside to fair value."
-    elif score >= 55 and upside is not None and upside > 0:
-        action = "BUY"
-        confidence_score = calculate_confidence({"targetMeanPrice": 1, "targetHighPrice": 1.5,
-                                                  "targetLowPrice": 0.8, "averageVolume": 1000000,
-                                                  "currentPrice": 1}, score_data)
-        reason1 = f"Fundamentals are solid ({rating}, {score:.0f}/100) with room to grow."
-        reason2 = f"Modest upside of {upside_str} makes this a reasonable entry for long-term holders."
-    elif upside is not None and upside > -10 and score >= 40:
-        action = "HOLD"
-        confidence_score = calculate_confidence(info={"averageVolume": 500000, "currentPrice": 1}, score_data=score_data)
-        reason1 = f"Results are mixed ({rating}, {score:.0f}/100) — neither strongly cheap nor expensive."
-        reason2 = f"With only {upside_str} upside, wait for a better price or clearer catalyst."
-    elif upside is not None and upside <= -10:
+    elif sell_points >= 5 and net_score <= -2:
         action = "SELL"
-        confidence_score = calculate_confidence(info={"averageVolume": 500000, "currentPrice": 1}, score_data=score_data)
-        reason1 = f"Fundamentals are weak ({rating}, {score:.0f}/100) and growth looks limited."
-        reason2 = f"The stock may be overpriced with {upside_str} downside vs fair value — consider reducing exposure."
     else:
         action = "HOLD"
-        confidence_score = calculate_confidence(info={"averageVolume": 500000, "currentPrice": 1}, score_data=score_data)
-        reason1 = f"Not enough clear signals ({rating}, {score:.0f}/100) to call a strong move."
-        reason2 = "Hold and watch for better data before making a bigger decision."
 
-    if analyst_data and analyst_data.get("Consensus Rating"):
-        divergence = 0 if analyst_bullish and action == "BUY" else (20 if analyst_bullish else 10)
-        confidence_score = max(confidence_score - divergence, 0)
+    if action == "BUY" and upside is not None and upside <= -25 and (target_upside is None or target_upside < 10):
+        action = "HOLD"
+        risks.append("Fair-value downside is too large to justify a BUY despite quality and analyst support.")
+
+    conviction = abs(net_score)
+    confidence_score = min(92, max(45, 48 + conviction * 7 + min(score, 90) * 0.25))
+    if action == "HOLD":
+        confidence_score = min(confidence_score, 72)
+    confidence_score = round(confidence_score)
+
+    if action == "BUY":
+        reason1 = reasons[0] if reasons else f"The stock has a positive combined score ({rating}, {score:.0f}/100)."
+        reason2 = next((r for r in reasons[1:] if "upside" in r.lower() or "consensus" in r.lower()), reasons[1] if len(reasons) > 1 else "Multiple signals support accumulation.")
+    elif action == "SELL":
+        reason1 = risks[0] if risks else f"The stock has a negative combined score ({rating}, {score:.0f}/100)."
+        reason2 = next((r for r in risks[1:] if "downside" in r.lower() or "consensus" in r.lower()), risks[1] if len(risks) > 1 else "Risk/reward is unfavorable.")
+    else:
+        reason1 = risks[0] if risks else f"Signals are balanced ({rating}, {score:.0f}/100)."
+        reason2 = reasons[0] if reasons else "Wait for a clearer valuation or quality signal before changing stance."
 
     return {
         "recommendation": action,
         "confidence": confidence_score,
         "score": score,
         "upside": upside,
+        "targetUpside": target_upside,
         "rating": rating,
+        "buySignals": buy_points,
+        "sellSignals": sell_points,
         "reason1": reason1,
-        "reason2": reason2
+        "reason2": reason2,
     }
 
 
@@ -595,6 +861,7 @@ def build_analysis_context(symbol: str, exchange: str) -> dict:
         "marketMetrics": {
             "currentPrice": current_price,
             "marketCap": market_cap,
+            "currency": info.get("currency") or info.get("financialCurrency"),
             "peRatio": pe_ratio,
             "forwardPE": info.get("forwardPE"),
             "eps": eps,

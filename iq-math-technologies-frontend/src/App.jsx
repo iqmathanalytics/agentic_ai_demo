@@ -12,6 +12,8 @@ const navItems = [
   ["FAQ", "#faq"],
 ];
 
+const SHOW_FULL_SITE = false;
+
 const overviewTabs = [
   {
     id: "learn",
@@ -128,27 +130,40 @@ function Header() {
     <header className="site-header" id="top">
       <nav className="nav-shell" aria-label="Primary navigation">
         <Brand />
-        <button
-          className="nav-toggle"
-          type="button"
-          aria-expanded={isOpen}
-          aria-controls="nav-links"
-          onClick={() => setIsOpen((current) => !current)}
-        >
-          <span />
-          <span />
-          <span />
-        </button>
-        <div className={`nav-links ${isOpen ? "open" : ""}`} id="nav-links">
-          {navItems.map(([label, href]) => (
-            <a key={href} href={href} onClick={() => setIsOpen(false)}>
-              {label}
-            </a>
-          ))}
-          <a className="nav-cta" href="#enquiry" onClick={() => setIsOpen(false)}>
-            Enroll Now
+        {SHOW_FULL_SITE ? (
+          <>
+            <button
+              className="nav-toggle"
+              type="button"
+              aria-expanded={isOpen}
+              aria-controls="nav-links"
+              onClick={() => setIsOpen((current) => !current)}
+            >
+              <span />
+              <span />
+              <span />
+            </button>
+            <div className={`nav-links ${isOpen ? "open" : ""}`} id="nav-links">
+              {navItems.map(([label, href]) => (
+                <a key={href} href={href} onClick={() => setIsOpen(false)}>
+                  {label}
+                </a>
+              ))}
+              <a className="nav-cta" href="#enquiry" onClick={() => setIsOpen(false)}>
+                Enroll Now
+              </a>
+            </div>
+          </>
+        ) : (
+          <a
+            className="demo-back-button"
+            href="https://www.nexpertsai.com"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            NexpertsAI
           </a>
-        </div>
+        )}
       </nav>
     </header>
   );
@@ -508,18 +523,22 @@ export default function App() {
     <ErrorBoundary>
       <Header />
       <main>
-        <Hero />
-        <StatsBand />
-        <Overview />
-        <Audience />
-        <Curriculum />
-        <Outcomes />
-        <Pricing />
-        <Testimonials />
+        {SHOW_FULL_SITE && (
+          <>
+            <Hero />
+            <StatsBand />
+            <Overview />
+            <Audience />
+            <Curriculum />
+            <Outcomes />
+            <Pricing />
+            <Testimonials />
+          </>
+        )}
         <AIAgentsShowcase />
-        <FAQ />
+        {SHOW_FULL_SITE && <FAQ />}
       </main>
-      <Footer />
+      {SHOW_FULL_SITE && <Footer />}
     </ErrorBoundary>
   );
 }

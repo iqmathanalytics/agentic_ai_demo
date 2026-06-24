@@ -117,6 +117,21 @@ a {
   background: var(--maroon);
 }
 
+.demo-back-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 42px;
+  padding: 0 16px;
+  border: 1px solid rgba(155, 27, 48, 0.18);
+  border-radius: 8px;
+  color: white;
+  background: var(--maroon);
+  font-size: 14px;
+  font-weight: 800;
+  box-shadow: 0 12px 30px rgba(155, 27, 48, 0.18);
+}
+
 .nav-toggle {
   display: none;
   width: 42px;

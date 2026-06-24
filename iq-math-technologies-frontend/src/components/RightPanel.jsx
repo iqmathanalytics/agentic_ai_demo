@@ -104,7 +104,7 @@ function CustomTooltip({ active, payload }) {
   return (
     <div className="bg-premium-bg border border-white/10 rounded-xl px-4 py-3 shadow-2xl backdrop-blur-md">
       <p className="text-slate-500 text-[10px] font-mono mb-1 uppercase tracking-tighter">{payload[0].payload.time}</p>
-      <p className="text-cyan-400 text-sm font-bold font-mono">${Number(payload[0].value).toLocaleString()}</p>
+      <p className="text-cyan-400 text-sm font-bold font-mono">{formatMoney(payload[0].value)}</p>
     </div>
   );
 }
@@ -249,18 +249,28 @@ function hasValue(value) {
   return true;
 }
 
-function formatValue(value, fmt) {
+function formatMoney(value, currency = "MYR") {
+  const amount = Number(value);
+  if (!Number.isFinite(amount)) return null;
+  const prefix = currency === "MYR" ? "RM" : currency;
+  if (Math.abs(amount) >= 1e12) return `${prefix} ${(amount / 1e12).toFixed(2)}T`;
+  if (Math.abs(amount) >= 1e9) return `${prefix} ${(amount / 1e9).toFixed(2)}B`;
+  if (Math.abs(amount) >= 1e6) return `${prefix} ${(amount / 1e6).toFixed(2)}M`;
+  return `${prefix} ${Number.isInteger(amount) ? amount.toLocaleString() : amount.toFixed(2)}`;
+}
+
+function formatValue(value, fmt, currency = "MYR") {
   if (!hasValue(value)) return null;
   if (typeof value === "number") {
     if (fmt === "currency") {
-      return "$" + (Number.isInteger(value) ? value.toLocaleString() : value.toFixed(2));
+      return formatMoney(value, currency);
     }
     if (Math.abs(value) < 1 && value !== 0) {
       return (value * 100).toFixed(2).replace(/\.?0+$/, "") + "%";
     }
-    if (value >= 1e12) return "$" + (value / 1e12).toFixed(2) + "T";
-    if (value >= 1e9) return "$" + (value / 1e9).toFixed(2) + "B";
-    if (value >= 1e6) return "$" + (value / 1e6).toFixed(2) + "M";
+    if (value >= 1e12) return formatMoney(value, currency);
+    if (value >= 1e9) return formatMoney(value, currency);
+    if (value >= 1e6) return formatMoney(value, currency);
     return Number.isInteger(value) ? value.toLocaleString() : value.toFixed(2);
   }
   return String(value);
@@ -288,6 +298,9 @@ function StockResults({ data }) {
     : (data.latestNews || []).map((title) => ({ title, snippet: title, url: "", source: "", date: "" }));
   const rawChartData = data.chartData || [];
   const [chartRange, setChartRange] = useState("1Y");
+  const displayCurrency = data.displayCurrency || "MYR";
+  const sourceCurrency = data.sourceCurrency;
+  const fxRate = data.fxRateToDisplayCurrency;
 
   const currentPrice = data.currentPrice ?? valuation["Current Price"] ?? valuation["currentPrice"];
   const marketCap = data.marketCap ?? valuation["Market Cap"] ?? valuation["marketCap"];
@@ -329,8 +342,8 @@ function StockResults({ data }) {
   if (hasValue(currentPrice) && currentPrice > 0) {
     metricCards.push({
       key: "price",
-      label: "Current Price",
-      value: formatValue(currentPrice, "currency"),
+      label: `Current Price (${displayCurrency})`,
+      value: formatValue(currentPrice, "currency", displayCurrency),
       className: "bg-gradient-to-br from-cyan-600/10 via-blue-600/5 to-transparent border-cyan-500/20",
       labelColor: "text-cyan-400",
     });
@@ -339,8 +352,8 @@ function StockResults({ data }) {
   if (hasValue(marketCap)) {
     metricCards.push({
       key: "cap",
-      label: "Market Cap",
-      value: formatValue(marketCap),
+      label: `Market Cap (${displayCurrency})`,
+      value: formatValue(marketCap, "currency", displayCurrency),
       className: "bg-gradient-to-br from-sky-600/10 via-teal-600/5 to-transparent border-sky-500/20",
       labelColor: "text-sky-400",
     });
@@ -369,7 +382,7 @@ function StockResults({ data }) {
       label: "Analyst Target Price",
       value: (
         <>
-          <div className="text-3xl font-black text-white tracking-tighter">{formatValue(targetPrice, "currency")}</div>
+          <div className="text-3xl font-black text-white tracking-tighter">{formatValue(targetPrice, "currency", displayCurrency)}</div>
           {hasValue(consensusRating) && (
             <div className="text-[11px] text-slate-500 mt-2 leading-relaxed">
               Wall Street view: <span className="text-indigo-300 font-medium">{consensusRating}</span>
@@ -387,6 +400,7 @@ function StockResults({ data }) {
     { label: "Forward PE", key: "Forward PE" },
     { label: "PEG Ratio", key: "PEG Ratio" },
     { label: "EV/EBITDA", key: "EV/EBITDA" },
+    { label: `Fair Value (${displayCurrency})`, key: "Fair Value Estimate", fmt: "currency" },
     { label: "Assessment", key: "Assessment" },
   ];
   const availableValuationFields = valuationFieldDefs
@@ -404,8 +418,8 @@ function StockResults({ data }) {
   const analystFieldDefs = [
     { label: "Wall Street Consensus", key: "Consensus Rating" },
     { label: "Number of Analysts", key: "Number of Analyst Opinions" },
-    { label: "Target High", key: "Target High Price", fmt: "currency" },
-    { label: "Target Low", key: "Target Low Price", fmt: "currency" },
+    { label: `Target High (${displayCurrency})`, key: "Target High Price", fmt: "currency" },
+    { label: `Target Low (${displayCurrency})`, key: "Target Low Price", fmt: "currency" },
   ];
   const availableAnalystFields = analystFieldDefs
     .map((f) => ({ ...f, value: analystRatings[f.key] }))
@@ -447,6 +461,11 @@ function StockResults({ data }) {
                 </span>
               ))}
             </div>
+          )}
+          {sourceCurrency && sourceCurrency !== displayCurrency && hasValue(fxRate) && (
+            <p className="text-[10px] text-amber-300/80 mt-3 leading-relaxed">
+              Money values converted from {sourceCurrency} to {displayCurrency} using FX rate 1 {sourceCurrency} = {Number(fxRate).toFixed(4)} {displayCurrency}.
+            </p>
           )}
           <p className="text-[10px] text-slate-500 mt-3 leading-relaxed">
             Based on publicly available market data. Not financial advice. Verify before investing.
@@ -493,7 +512,9 @@ function StockResults({ data }) {
             {availableValuationFields.map((f) => (
               <div key={f.key}>
                 <div className="text-[10px] text-slate-500 mb-1">{f.label}</div>
-                <div className="text-sm font-bold text-white">{formatValue(f.value)}</div>
+                <div className="text-sm font-bold text-white">
+                  {f.fmt === "currency" ? formatValue(f.value, "currency", displayCurrency) : formatValue(f.value)}
+                </div>
               </div>
             ))}
           </div>
@@ -617,7 +638,7 @@ function StockResults({ data }) {
             {availableAnalystFields.map((f) => (
               <div key={f.key}>
                 <div className="text-[10px] text-slate-500 mb-1">{f.label}</div>
-                <div className="text-sm font-bold text-white">{f.fmt === "currency" ? formatValue(f.value, "currency") : f.value}</div>
+                <div className="text-sm font-bold text-white">{f.fmt === "currency" ? formatValue(f.value, "currency", displayCurrency) : f.value}</div>
               </div>
             ))}
           </div>
