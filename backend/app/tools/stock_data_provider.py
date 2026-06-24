@@ -71,6 +71,214 @@ def _fetch_yfinance_bundle(ticker: str, period: str = "1y") -> dict[str, Any] | 
         return None
 
 
+def _raw_value(entry: Any) -> float | None:
+    if isinstance(entry, dict):
+        reported = entry.get("reportedValue")
+        if isinstance(reported, dict):
+            return _safe_float(reported.get("raw"))
+        return _safe_float(entry.get("raw"))
+    return _safe_float(entry)
+
+
+def _latest_series_value(series: dict[str, list], key: str) -> float | None:
+    values = series.get(key) or []
+    if not values:
+        return None
+    return _raw_value(values[-1])
+
+
+def _growth_from_series(series: dict[str, list], key: str) -> float | None:
+    values = series.get(key) or []
+    if len(values) < 2:
+        return None
+    latest = _raw_value(values[-1])
+    previous = _raw_value(values[-2])
+    if latest is None or previous in (None, 0):
+        return None
+    return (latest - previous) / abs(previous)
+
+
+def _safe_ratio(numerator: float | None, denominator: float | None) -> float | None:
+    if numerator is None or denominator in (None, 0):
+        return None
+    return numerator / denominator
+
+
+def _fetch_yahoo_http_bundle(ticker: str, period: str = "1y") -> dict[str, Any] | None:
+    """Render-safe Yahoo provider using public chart/search/timeseries endpoints.
+
+    yfinance can fail on cloud hosts because parts of Yahoo's API require cookies
+    and crumbs. These endpoints still provide enough structured data for the same
+    valuation/fundamental/risk pipeline used locally.
+    """
+    try:
+        import httpx
+        import pandas as pd
+    except ImportError:
+        return None
+
+    headers = {"User-Agent": "Mozilla/5.0"}
+    range_value = "5y" if period == "5y" else "1y"
+    fundamentals = [
+        "annualTotalRevenue",
+        "quarterlyTotalRevenue",
+        "marketCap",
+        "trailingPeRatio",
+        "annualBasicEPS",
+        "annualDilutedEPS",
+        "annualNetIncome",
+        "annualGrossProfit",
+        "annualOperatingIncome",
+        "annualTotalDebt",
+        "annualStockholdersEquity",
+        "annualTotalAssets",
+        "annualFreeCashFlow",
+        "annualOrdinarySharesNumber",
+        "quarterlyOrdinarySharesNumber",
+        "quarterlyNetIncome",
+        "quarterlyTotalRevenue",
+    ]
+
+    try:
+        with httpx.Client(timeout=30, headers=headers, follow_redirects=True) as client:
+            chart_resp = client.get(
+                f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}",
+                params={"range": range_value, "interval": "1d"},
+            )
+            search_resp = client.get(
+                "https://query1.finance.yahoo.com/v1/finance/search",
+                params={"q": ticker, "quotesCount": 1, "newsCount": 0},
+            )
+            ts_resp = client.get(
+                f"https://query1.finance.yahoo.com/ws/fundamentals-timeseries/v1/finance/timeseries/{ticker}",
+                params={
+                    "symbol": ticker,
+                    "type": ",".join(fundamentals),
+                    "period1": "1609459200",
+                    "period2": "1893456000",
+                },
+            )
+    except Exception as exc:
+        logger.warning("[Yahoo HTTP] request failed for %s: %s", ticker, exc)
+        return None
+
+    if chart_resp.status_code != 200:
+        logger.warning("[Yahoo HTTP] chart returned HTTP %s for %s", chart_resp.status_code, ticker)
+        return None
+
+    try:
+        chart = chart_resp.json()
+        result = ((chart.get("chart") or {}).get("result") or [None])[0]
+    except Exception:
+        result = None
+    if not result:
+        return None
+
+    meta = result.get("meta") or {}
+    timestamps = result.get("timestamp") or []
+    indicators = result.get("indicators") or {}
+    quote = (indicators.get("quote") or [{}])[0] or {}
+    closes = quote.get("close") or []
+    volumes = quote.get("volume") or []
+
+    rows = []
+    for idx, (ts, close) in enumerate(zip(timestamps, closes)):
+        if close is None:
+            continue
+        rows.append({
+            "date": pd.to_datetime(int(ts), unit="s", utc=True).tz_convert(None),
+            "Close": float(close),
+            "Volume": int(volumes[idx] or 0) if idx < len(volumes) and volumes[idx] is not None else 0,
+        })
+    history = pd.DataFrame(rows)
+    if not history.empty:
+        history = history.set_index("date").sort_index()
+
+    current_price = _safe_float(meta.get("regularMarketPrice"))
+    if current_price is None and not history.empty:
+        current_price = _safe_float(history["Close"].iloc[-1])
+    if current_price is None:
+        return None
+
+    search_quote = {}
+    if search_resp.status_code == 200:
+        try:
+            quotes = search_resp.json().get("quotes") or []
+            search_quote = quotes[0] if quotes else {}
+        except Exception:
+            search_quote = {}
+
+    series: dict[str, list] = {}
+    if ts_resp.status_code == 200:
+        try:
+            for item in (ts_resp.json().get("timeseries") or {}).get("result") or []:
+                item_type = ((item.get("meta") or {}).get("type") or [None])[0]
+                if item_type and item.get(item_type):
+                    series[item_type] = item[item_type]
+        except Exception:
+            series = {}
+
+    revenue = _latest_series_value(series, "annualTotalRevenue")
+    prev_revenue_growth = _growth_from_series(series, "annualTotalRevenue")
+    earnings_growth = _growth_from_series(series, "annualNetIncome")
+    net_income = _latest_series_value(series, "annualNetIncome")
+    gross_profit = _latest_series_value(series, "annualGrossProfit")
+    operating_income = _latest_series_value(series, "annualOperatingIncome")
+    total_debt = _latest_series_value(series, "annualTotalDebt")
+    equity = _latest_series_value(series, "annualStockholdersEquity")
+    assets = _latest_series_value(series, "annualTotalAssets")
+    eps = _latest_series_value(series, "annualDilutedEPS") or _latest_series_value(series, "annualBasicEPS")
+    trailing_pe = _latest_series_value(series, "trailingPeRatio")
+    shares = _latest_series_value(series, "quarterlyOrdinarySharesNumber") or _latest_series_value(series, "annualOrdinarySharesNumber")
+    market_cap = _safe_float(meta.get("marketCap")) or _latest_series_value(series, "marketCap")
+    if market_cap is None and shares and current_price:
+        market_cap = shares * current_price
+
+    info = {
+        "shortName": search_quote.get("shortname") or meta.get("shortName") or ticker,
+        "longName": search_quote.get("longname") or meta.get("longName") or search_quote.get("shortname") or ticker,
+        "symbol": meta.get("symbol") or ticker,
+        "sector": search_quote.get("sector") or search_quote.get("sectorDisp"),
+        "industry": search_quote.get("industry") or search_quote.get("industryDisp"),
+        "currency": meta.get("currency"),
+        "financialCurrency": meta.get("currency"),
+        "currentPrice": current_price,
+        "regularMarketPrice": current_price,
+        "marketCap": market_cap,
+        "totalRevenue": revenue,
+        "trailingEps": eps,
+        "trailingPE": trailing_pe or (_safe_ratio(current_price, eps) if eps else None),
+        "revenueGrowth": prev_revenue_growth,
+        "earningsGrowth": earnings_growth,
+        "grossMargins": _safe_ratio(gross_profit, revenue),
+        "operatingMargins": _safe_ratio(operating_income, revenue),
+        "profitMargins": _safe_ratio(net_income, revenue),
+        "returnOnEquity": _safe_ratio(net_income, equity),
+        "returnOnAssets": _safe_ratio(net_income, assets),
+        "debtToEquity": _safe_ratio(total_debt, equity),
+        "freeCashflow": _latest_series_value(series, "annualFreeCashFlow"),
+        "fiftyTwoWeekHigh": _safe_float(meta.get("fiftyTwoWeekHigh")),
+        "fiftyTwoWeekLow": _safe_float(meta.get("fiftyTwoWeekLow")),
+        "averageVolume": _safe_float(meta.get("regularMarketVolume")),
+        "recommendationKey": "N/A",
+    }
+
+    logger.info(
+        "[Yahoo HTTP] bundle ready for %s | price=%s marketCap=%s history=%d rows",
+        ticker,
+        current_price,
+        info.get("marketCap"),
+        len(history),
+    )
+    return {
+        "info": info,
+        "history": history,
+        "source": "Yahoo Finance",
+        "ticker": ticker,
+        "currency": info.get("currency"),
+    }
+
+
 def _safe_float(value: Any) -> float | None:
     if value is None:
         return None
@@ -297,6 +505,11 @@ def get_stock_bundle(symbol: str, exchange: str, period: str = "1y") -> dict[str
     if yahoo and _info_is_usable(yahoo.get("info")):
         _BUNDLE_CACHE[cache_key] = (yahoo, time.time())
         return yahoo
+
+    yahoo_http = _fetch_yahoo_http_bundle(ticker, period=period)
+    if yahoo_http and _info_is_usable(yahoo_http.get("info")):
+        _BUNDLE_CACHE[cache_key] = (yahoo_http, time.time())
+        return yahoo_http
 
     fmp = _fetch_fmp_bundle(symbol, exchange, period=period)
     if fmp:

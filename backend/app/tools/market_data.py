@@ -112,6 +112,62 @@ def _fetch_yahoo(symbol: str, exchange: str) -> dict[str, Any] | None:
         return None
 
 
+def _fetch_yahoo_http(symbol: str, exchange: str) -> dict[str, Any] | None:
+    ticker = _ticker_for_exchange(symbol, exchange)
+    logger.info("[Yahoo HTTP] Fetching ticker=%s", ticker)
+
+    try:
+        from .stock_data_provider import _fetch_yahoo_http_bundle
+    except Exception as exc:
+        logger.warning("[Yahoo HTTP] provider unavailable: %s", exc)
+        return None
+
+    bundle = _fetch_yahoo_http_bundle(ticker, period="5y")
+    if not bundle:
+        return None
+
+    info = bundle.get("info") or {}
+    history = bundle.get("history")
+    if history is None or history.empty:
+        return None
+
+    clean_history = history.dropna(subset=["Close"])
+    if clean_history.empty:
+        return None
+
+    closes = [float(v) for v in clean_history["Close"].tail(60).tolist()]
+    latest = info.get("currentPrice") or closes[-1]
+    previous = closes[-2] if len(closes) > 1 else latest
+    change_pct = ((latest - previous) / previous) * 100 if previous else 0
+    sma20 = mean(closes[-20:]) if len(closes) >= 20 else mean(closes)
+    sma50 = mean(closes[-50:]) if len(closes) >= 50 else mean(closes)
+    chart_data = [
+        {"time": str(index.date()), "value": round(float(row["Close"]), 2)}
+        for index, row in clean_history.iterrows()
+    ]
+    volume = int(clean_history["Volume"].tail(1).iloc[0]) if "Volume" in clean_history.columns else None
+
+    return {
+        "available": True,
+        "provider": "Yahoo Finance",
+        "ticker": ticker,
+        "currency": bundle.get("currency") or info.get("currency") or info.get("financialCurrency"),
+        "currentPrice": round(float(latest), 2),
+        "change": round(change_pct, 2),
+        "sma20": round(sma20, 2),
+        "sma50": round(sma50, 2),
+        "volume": volume or info.get("averageVolume"),
+        "marketCap": info.get("marketCap"),
+        "trailingPE": info.get("trailingPE"),
+        "sector": info.get("sector"),
+        "chartData": chart_data,
+        "news": [],
+        "companyName": info.get("longName") or info.get("shortName"),
+        "52WeekHigh": info.get("fiftyTwoWeekHigh"),
+        "52WeekLow": info.get("fiftyTwoWeekLow"),
+    }
+
+
 def _fetch_alpha_vantage(symbol: str, exchange: str) -> dict[str, Any] | None:
     api_key = os.getenv("ALPHA_VANTAGE_KEY")
     if not api_key:
@@ -353,6 +409,7 @@ def _fetch_fmp(symbol: str, exchange: str) -> dict[str, Any] | None:
 
 _PROVIDERS: list[tuple[str, Any]] = [
     ("Yahoo Finance", _fetch_yahoo),
+    ("Yahoo HTTP", _fetch_yahoo_http),
     ("Financial Modeling Prep", _fetch_fmp),
     ("Finnhub", _fetch_finnhub),
     ("Alpha Vantage", _fetch_alpha_vantage),
