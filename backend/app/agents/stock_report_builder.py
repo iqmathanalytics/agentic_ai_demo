@@ -374,26 +374,21 @@ def collect_data_sources(state: dict) -> list[str]:
 
 
 def compute_data_completeness(state: dict) -> int:
-    market = state.get("market_data") or {}
-    quant = state.get("quantitative_data") or {}
-
     checks = [
-        (20, _has_value(market.get("Current Price"))),
-        (15, bool(market.get("chartData"))),
-        (15, _has_value(quant.get("recommendation"))),
-        (10, _has_value(state.get("risk_data"))),
-        (10, _has_value(state.get("fundamental_data"))),
-        (10, _has_value(state.get("valuation_data"))),
-        (5, _has_value(market.get("Market Cap"))),
-        (5, _has_value(state.get("analyst_data"))),
-        (4, bool(quant.get("bullishFactors"))),
-        (4, bool(quant.get("bearishFactors"))),
-        (1, bool(state.get("company_report") and "Data Not Available" not in str(state.get("company_report")))),
-        (1, bool(state.get("news_items") or state.get("news_headlines"))),
+        _has_value((state.get("market_data") or {}).get("Current Price")),
+        _has_value((state.get("market_data") or {}).get("Market Cap")),
+        _has_value(state.get("fundamental_data")),
+        _has_value(state.get("valuation_data")),
+        _has_value(state.get("risk_data")),
+        _has_value(state.get("analyst_data")),
+        _has_value((state.get("quantitative_data") or {}).get("recommendation")),
+        bool((state.get("quantitative_data") or {}).get("bullishFactors")),
+        bool((state.get("quantitative_data") or {}).get("bearishFactors")),
+        bool(state.get("company_report") and "Data Not Available" not in str(state.get("company_report"))),
+        bool(state.get("news_items") or state.get("news_headlines")),
+        bool((state.get("market_data") or {}).get("chartData")),
     ]
-    total = sum(weight for weight, _ in checks)
-    earned = sum(weight for weight, ok in checks if ok)
-    return round(earned / total * 100) if total else 0
+    return round(sum(1 for c in checks if c) / len(checks) * 100)
 
 
 def _merge_valuation(market: dict, valuation: dict) -> dict:
