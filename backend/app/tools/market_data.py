@@ -115,6 +115,79 @@ def _fetch_yahoo(symbol: str, exchange: str) -> dict[str, Any] | None:
         return None
 
 
+def _fetch_yahoo_chart(symbol: str, exchange: str) -> dict[str, Any] | None:
+    """No-key Yahoo chart fallback for cloud hosts where yfinance is blocked."""
+    ticker = _ticker_for_exchange(symbol, exchange)
+    logger.info("[Yahoo Chart] Fetching ticker=%s", ticker)
+
+    try:
+        import httpx
+    except ImportError:
+        return None
+
+    try:
+        response = httpx.get(
+            f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}",
+            params={"range": "5y", "interval": "1d"},
+            headers={"User-Agent": "Mozilla/5.0"},
+            timeout=25,
+        )
+        data = response.json()
+        result = ((data.get("chart") or {}).get("result") or [None])[0]
+        if not result:
+            return None
+
+        meta = result.get("meta") or {}
+        timestamps = result.get("timestamp") or []
+        quote = (((result.get("indicators") or {}).get("quote") or [{}])[0]) or {}
+        closes = quote.get("close") or []
+        volumes = quote.get("volume") or []
+
+        chart_data = []
+        clean_closes = []
+        from datetime import datetime, timezone
+
+        for ts, close in zip(timestamps, closes):
+            if close is None:
+                continue
+            value = round(float(close), 2)
+            clean_closes.append(value)
+            dt = datetime.fromtimestamp(int(ts), tz=timezone.utc).date().isoformat()
+            chart_data.append({"time": dt, "value": value})
+
+        latest = meta.get("regularMarketPrice") or (clean_closes[-1] if clean_closes else None)
+        if not latest:
+            return None
+
+        previous = clean_closes[-2] if len(clean_closes) > 1 else latest
+        change_pct = ((latest - previous) / previous) * 100 if previous else 0
+        sma20 = mean(clean_closes[-20:]) if len(clean_closes) >= 20 else mean(clean_closes) if clean_closes else None
+        sma50 = mean(clean_closes[-50:]) if len(clean_closes) >= 50 else mean(clean_closes) if clean_closes else None
+
+        return {
+            "available": True,
+            "provider": "Yahoo Chart",
+            "ticker": ticker,
+            "currency": meta.get("currency"),
+            "currentPrice": round(float(latest), 2),
+            "change": round(float(change_pct), 2),
+            "sma20": round(float(sma20), 2) if sma20 is not None else None,
+            "sma50": round(float(sma50), 2) if sma50 is not None else None,
+            "volume": volumes[-1] if volumes else meta.get("regularMarketVolume"),
+            "marketCap": None,
+            "trailingPE": None,
+            "sector": None,
+            "chartData": chart_data,
+            "news": [],
+            "companyName": meta.get("longName") or meta.get("shortName"),
+            "52WeekHigh": meta.get("fiftyTwoWeekHigh"),
+            "52WeekLow": meta.get("fiftyTwoWeekLow"),
+        }
+    except Exception as exc:
+        logger.warning("[Yahoo Chart] failed for %s: %s", ticker, exc)
+        return None
+
+
 def _fetch_alpha_vantage(symbol: str, exchange: str) -> dict[str, Any] | None:
     api_key = os.getenv("ALPHA_VANTAGE_KEY")
     if not api_key:
@@ -365,6 +438,7 @@ def _fetch_fmp(symbol: str, exchange: str) -> dict[str, Any] | None:
 
 _PROVIDERS: list[tuple[str, Any]] = [
     ("Yahoo Finance", _fetch_yahoo),
+    ("Yahoo Chart", _fetch_yahoo_chart),
     ("Financial Modeling Prep", _fetch_fmp),
     ("Finnhub", _fetch_finnhub),
     ("Alpha Vantage", _fetch_alpha_vantage),

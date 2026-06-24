@@ -111,6 +111,73 @@ def _fetch_yfinance_bundle(ticker: str, period: str = "1y") -> dict[str, Any] | 
         return None
 
 
+def _fetch_yahoo_chart_bundle(ticker: str, period: str = "1y") -> dict[str, Any] | None:
+    try:
+        import httpx
+        import pandas as pd
+    except ImportError:
+        return None
+
+    range_value = "5y" if period == "5y" else "1y"
+    try:
+        response = httpx.get(
+            f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}",
+            params={"range": range_value, "interval": "1d"},
+            headers={"User-Agent": "Mozilla/5.0"},
+            timeout=25,
+        )
+        data = response.json()
+        result = ((data.get("chart") or {}).get("result") or [None])[0]
+        if not result:
+            return None
+        meta = result.get("meta") or {}
+        timestamps = result.get("timestamp") or []
+        quote = (((result.get("indicators") or {}).get("quote") or [{}])[0]) or {}
+        closes = quote.get("close") or []
+        volumes = quote.get("volume") or []
+
+        rows = []
+        for idx, (ts, close) in enumerate(zip(timestamps, closes)):
+            if close is None:
+                continue
+            rows.append({
+                "date": pd.to_datetime(int(ts), unit="s", utc=True).tz_convert(None),
+                "Close": float(close),
+                "Volume": int(volumes[idx] or 0) if idx < len(volumes) and volumes[idx] is not None else 0,
+            })
+        history = pd.DataFrame(rows)
+        if not history.empty:
+            history = history.set_index("date").sort_index()
+
+        current_price = meta.get("regularMarketPrice")
+        if not current_price and not history.empty:
+            current_price = float(history["Close"].iloc[-1])
+        if not current_price:
+            return None
+
+        info = {
+            "shortName": meta.get("shortName") or meta.get("longName") or ticker,
+            "longName": meta.get("longName") or meta.get("shortName") or ticker,
+            "symbol": meta.get("symbol") or ticker,
+            "currency": meta.get("currency"),
+            "currentPrice": float(current_price),
+            "regularMarketPrice": float(current_price),
+            "averageVolume": meta.get("regularMarketVolume"),
+            "fiftyTwoWeekHigh": meta.get("fiftyTwoWeekHigh"),
+            "fiftyTwoWeekLow": meta.get("fiftyTwoWeekLow"),
+        }
+        return {
+            "info": info,
+            "history": history,
+            "source": "Yahoo Chart",
+            "ticker": ticker,
+            "currency": meta.get("currency"),
+        }
+    except Exception as exc:
+        logger.warning("[Yahoo Chart] bundle failed for %s: %s", ticker, exc)
+        return None
+
+
 def _safe_float(value: Any) -> float | None:
     if value is None:
         return None
@@ -352,6 +419,16 @@ def get_stock_bundle(symbol: str, exchange: str, period: str = "1y") -> dict[str
             return merged
         _BUNDLE_CACHE[cache_key] = (yahoo, time.time())
         return yahoo
+
+    yahoo_chart = _fetch_yahoo_chart_bundle(ticker, period=period)
+    if yahoo_chart and _info_is_usable(yahoo_chart.get("info")):
+        if fmp and _info_is_usable(fmp.get("info")):
+            merged = _merge_bundles(fmp, yahoo_chart)
+            _maybe_enrich_history(merged, symbol, exchange, period)
+            _BUNDLE_CACHE[cache_key] = (merged, time.time())
+            return merged
+        _BUNDLE_CACHE[cache_key] = (yahoo_chart, time.time())
+        return yahoo_chart
 
     fmp = fmp or _fetch_fmp_bundle(symbol, exchange, period=period)
     if fmp:
